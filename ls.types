@@ -124,6 +124,9 @@ Invoke via symlink for language-specific listing:
   lsp, lspython     Python files (.py)
   lsphp             PHP files (.php)
 
+Current Symlinks:
+$("$0" --symlinks list)
+
 Examples:
   $SCRIPT_NAME -S list      # Show available symlinks
   lsb -h                    # Bash-specific help
@@ -185,6 +188,8 @@ Options:
                     List or create symlinks (ACTION: list|create)
   -V, --version     Show version
   -h, --help        Show this help
+
+$("$0" --symlinks list)
 
 Examples:
   # Current dir, depth 1
