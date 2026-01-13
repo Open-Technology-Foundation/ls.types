@@ -10,23 +10,31 @@ A single script that serves as multiple commands via symlink dispatch. Call it a
 # Clone or copy to your preferred location
 cd /path/to/ls.types
 
-# Create symlinks
+# Create symlinks in script directory
 ./ls.types -S create
 
-# Add to PATH (optional)
+# System-wide install (optional)
+sudo mkdir -p /usr/local/share/ls.types
+sudo cp ls.types /usr/local/share/ls.types/
+sudo cp types.conf /usr/local/share/ls.types/
+sudo ln -s /usr/local/share/ls.types/ls.types /usr/local/bin/lsb
+sudo ln -s /usr/local/share/ls.types/ls.types /usr/local/bin/lsp
+
+# Or add to PATH via local bin
 ln -s /path/to/ls.types/lsb ~/.local/bin/
 ```
 
 ## Usage
 
 ```bash
-lsb                     # Bash files in current dir
-lsb /ai/scripts         # Bash files in specified dir
-lsb -d 2 .              # Depth 2 (recursive)
-lsb -rl /ai/scripts     # Realpath + ls listing
+lsb                       # Bash files in current dir
+lsb /ai/scripts           # Bash files in specified dir
+lsb /dir1 /dir2           # Search multiple directories
+lsb -d 2 .                # Depth 2 (recursive)
+lsb -rl /ai/scripts       # Realpath + ls listing (clustered options)
 
-lsp .                   # Python files
-lsphp /var/www          # PHP files
+lsp .                     # Python files
+lsphp /var/www            # PHP files
 ```
 
 ## Options
@@ -35,33 +43,125 @@ lsphp /var/www          # PHP files
 |--------|-------------|
 | `-d, --maxdepth N` | Max find depth (default: 1) |
 | `-r, --realpath` | Output absolute paths |
-| `-l, --ls` | Output as `ls -lhA` listing |
-| `-E, --edit` | Edit config file |
-| `-S, --symlinks [ACTION] [DIR]` | List or create symlinks (list\|create) |
+| `-l, --ls` | Format as `ls -lhA --color=always` listing |
+| `-E, --edit` | Interactive config editor |
+| `-S, --symlinks [ACTION] [DIR]` | Manage symlinks (list\|create) |
 | `-V, --version` | Show version |
 | `-h, --help` | Show help |
 
+Short options can be clustered: `-rl` is equivalent to `-r -l`.
+
 ## Configuration
 
-Config file (`types.conf`) format:
+Config file format (`types.conf`):
 
 ```
 symlink:filetype:shebang_pattern:extensions
 lsb:Bash:bash:sh,bash
 lsp:Python:python:py,python
+lsphp:PHP:php:php
 ```
 
-**Add a new language:**
+**Fields:**
+- `symlink` - Command name (dispatch key)
+- `filetype` - Human-readable label
+- `shebang_pattern` - Regex matched against `^#!.*{pattern}`
+- `extensions` - Comma-separated file extensions (no dots)
 
-1. Edit config: `lsb -E`
-2. Add entry: `lsjs:JavaScript:node:js,mjs,cjs`
-3. Create symlink: `lsb -S create`
-4. Use: `lsjs .`
+### Config Search Order (FHS-compliant)
+
+1. `/etc/ls.types/types.conf`
+2. `/usr/local/share/ls.types/types.conf`
+3. `/usr/share/ls.types/types.conf`
+4. Script directory (development/fallback)
+
+### Adding a New Language
+
+```bash
+lsb -E                    # Launch interactive config editor
+```
+
+Add entry:
+```
+lsjs:JavaScript:node:js,mjs,cjs
+```
+
+Create symlinks:
+```bash
+lsb -S create
+```
+
+Use:
+```bash
+lsjs .
+```
+
+## File Matching
+
+Files are matched using priority-based logic:
+
+1. **Shebang match** (primary) - First line matches `^#!.*{pattern}`
+2. **Extension fallback** - Checked only if shebang doesn't match
+3. **Binary exclusion** - Files detected as binary via `file --mime-encoding` are skipped
+4. **Readability** - Unreadable files are silently skipped
+
+## Output Modes
+
+**Plain** (default):
+```bash
+lsb /scripts
+# /scripts/deploy.sh
+# /scripts/backup.sh
+```
+
+**Realpath** (`-r`):
+```bash
+lsb -r /scripts
+# /home/user/scripts/deploy.sh
+# /home/user/scripts/backup.sh
+```
+
+**Listing** (`-l`):
+```bash
+lsb -l /scripts
+# -rwxr-xr-x 1 user group 1.2K 2026-01-13 09:15 /scripts/deploy.sh
+```
+
+**Combined** (`-rl`):
+```bash
+lsb -rl /scripts
+# Absolute paths with ls -lhA formatting
+```
+
+## Symlink Management
+
+**List symlinks:**
+```bash
+lsb -S                    # Or: lsb -S list
+# Symlinks defined in /path/to/types.conf:
+#   lsb          [exists]  -> /path/to/ls.types
+#   lsp          [missing]
+```
+
+**Create symlinks:**
+```bash
+lsb -S create             # In script directory
+lsb -S create /target     # In specified directory
+```
+
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | Config not found, invalid directory, or symlink creation failed |
+| 22 | Unknown option |
 
 ## Requirements
 
 - Bash 5.2+
-- GNU coreutils (find, realpath, file)
+- GNU coreutils (find, realpath)
+- file (MIME encoding detection)
 
 ## License
 
