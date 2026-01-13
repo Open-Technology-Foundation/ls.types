@@ -173,5 +173,3 @@ ls.bash -S create /target # In specified directory
 ## License
 
 GPL-3.0
-
-#fin
