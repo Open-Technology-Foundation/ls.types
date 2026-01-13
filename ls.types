@@ -7,7 +7,7 @@
 #
 # Key vars: SCRIPT_NAME (canonical), TYPE_NAME (symlink), EXT[] (extensions)
 set -euo pipefail
-shopt -s extglob nullglob
+shopt -s inherit_errexit shift_verbose extglob nullglob
 
 declare -r VERSION=1.0.0
 #shellcheck disable=SC2155
@@ -134,9 +134,9 @@ Global Options:
   -h, --help        Show this help
 
 Invoke via symlink for language-specific listing:
-  lsb, lsbash       Bash files (.sh, .bash)
-  lsp, lspython     Python files (.py)
-  lsphp             PHP files (.php)
+  ls.bash           Bash files (.sh, .bash)
+  ls.python         Python files (.py)
+  ls.php            PHP files (.php)
 
 Current Symlinks:
 $("$0" --symlinks list)
@@ -219,7 +219,7 @@ HELP
 
 # --- Argument Parsing ---
 while (($#)); do case $1 in
-  -E|--edit)      edit_config; exit 0 ;;
+  -E|--edit)      edit_config ;;
   -S|--symlinks)  manage_symlinks "${2:-}" "${3:-}"; exit 0 ;;
   -V|--version)   echo "$TYPE_NAME $VERSION"; exit 0 ;;
   -h|--help)      usage; exit 0 ;;
@@ -228,7 +228,7 @@ while (($#)); do case $1 in
   -[0123456789]*) MAXDEPTH=${1:1} ;;
   -r|--realpath)  REALPATH=1 ;;
   -l|--ls)        LS=1 ;;
-  -[ESVhdrl]*)    # Expand clustered options: -rl -> -r -l
+  -[Vhdrl]*)      # Expand clustered options: -rl -> -r -l
                   #shellcheck disable=SC2046
                   set -- '' $(printf -- '-%c ' $(grep -o . <<<"${1:1}")) "${@:2}" ;;
   -*)             die 22 "Unknown option ${1@Q}" ;;
@@ -244,9 +244,9 @@ done
 # --- File Discovery ---
 declare -a FILES=()
 if ((REALPATH)); then
-  readarray -t FILES < <(find "${DIRS[@]}" -maxdepth "$MAXDEPTH" -type f -exec realpath -e -- {} \; | sort -u)
+  readarray -t FILES < <(find -- "${DIRS[@]}" -maxdepth "$MAXDEPTH" -type f -exec realpath -e -- {} \; | sort -u)
 else
-  readarray -t FILES < <(find "${DIRS[@]}" -maxdepth "$MAXDEPTH" -type f | sort)
+  readarray -t FILES < <(find -- "${DIRS[@]}" -maxdepth "$MAXDEPTH" -type f | sort)
 fi
 
 # --- Filter and Output ---

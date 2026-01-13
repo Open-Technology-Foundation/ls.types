@@ -6,6 +6,8 @@ ls.python
 ls.php
 ls.js
 ls.perl
+ls.ruby
+ls.sh
 ls.*[!types]
 .claude/
 BASH-CODING-STANDARD.md
