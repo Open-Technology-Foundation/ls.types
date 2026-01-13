@@ -15,7 +15,6 @@ cd /path/to/ls.types
 
 # Add to PATH (optional)
 ln -s /path/to/ls.types/lsb ~/.local/bin/
-ln -s /path/to/ls.types/lsp ~/.local/bin/
 ```
 
 ## Usage
@@ -24,9 +23,7 @@ ln -s /path/to/ls.types/lsp ~/.local/bin/
 lsb                     # Bash files in current dir
 lsb /ai/scripts         # Bash files in specified dir
 lsb -d 2 .              # Depth 2 (recursive)
-lsb -r .                # Output absolute paths
-lsb -l .                # Output as ls -lhA listing
-lsb -rl /ai/scripts     # Combine options
+lsb -rl /ai/scripts     # Realpath + ls listing
 
 lsp .                   # Python files
 lsphp /var/www          # PHP files
@@ -40,71 +37,30 @@ lsphp /var/www          # PHP files
 | `-r, --realpath` | Output absolute paths |
 | `-l, --ls` | Output as `ls -lhA` listing |
 | `-E, --edit` | Edit config file |
-| `-S, --symlinks [ACTION] [DIR]` | List or create symlinks |
+| `-S, --symlinks [ACTION] [DIR]` | List or create symlinks (list\|create) |
 | `-V, --version` | Show version |
 | `-h, --help` | Show help |
 
-## Symlink Management
-
-```bash
-# List defined symlinks and their status
-lsb -S
-
-# Create missing symlinks in script directory
-lsb -S create
-
-# Create symlinks in custom directory
-lsb -S create /usr/local/bin
-```
-
 ## Configuration
 
-Edit `types.conf` to add or modify language types:
-
-```bash
-lsb -E    # Interactive config editor
-```
-
-Config format (colon-delimited):
+Config file (`types.conf`) format:
 
 ```
 symlink:filetype:shebang_pattern:extensions
-```
-
-Example entries:
-
-```
 lsb:Bash:bash:sh,bash
 lsp:Python:python:py,python
-lsphp:PHP:php:php
 ```
 
-After editing, create symlinks for new entries:
-
-```bash
-lsb -S create
-```
-
-## Adding a New Language
+**Add a new language:**
 
 1. Edit config: `lsb -E`
 2. Add entry: `lsjs:JavaScript:node:js,mjs,cjs`
 3. Create symlink: `lsb -S create`
 4. Use: `lsjs .`
 
-## How It Works
-
-The script uses symlink dispatch: it reads `$0` to determine which symlink invoked it, then looks up that name in `types.conf` to get the filetype, shebang pattern, and extensions.
-
-Files are matched by:
-1. Shebang line (`#!/usr/bin/env bash`, `#!/usr/bin/python3`, etc.)
-2. File extension (`.sh`, `.py`, `.php`, etc.)
-
-Binary files are automatically excluded.
-
 ## Requirements
 
-- Bash 5.0+
+- Bash 5.2+
 - GNU coreutils (find, realpath, file)
 
 ## License

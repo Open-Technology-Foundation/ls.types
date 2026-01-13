@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
-# List script files (Bash/Python/PHP/etc) by shebang or extension
+# ls.types - List script files by shebang or extension
+#
+# Symlink dispatch: behavior determined by invocation name ($TYPE_NAME)
+# Config format: symlink:filetype:shebang_pattern:extensions (colon-delimited)
+# Example: lsb:Bash:bash:sh,bash
+#
+# Key vars: SCRIPT_NAME (canonical), TYPE_NAME (symlink), EXT[] (extensions)
 set -euo pipefail
 shopt -s extglob nullglob
 
@@ -9,7 +15,7 @@ declare -r SCRIPT_PATH=$(realpath -- "$0")
 declare -r SCRIPT_DIR=${SCRIPT_PATH%/*}
 declare -r SCRIPT_NAME=${SCRIPT_PATH##*/}
 
-declare -r TYPE_NAME=${0##*/}
+declare -r TYPE_NAME=${0##*/}  # Symlink name determines behavior
 
 error() { >&2 echo "$SCRIPT_NAME: $TYPE_NAME: error: $*"; }
 die() { (($# < 2)) || error "${@:2}"; exit "${1:-0}"; }
@@ -20,13 +26,15 @@ declare -i MAXDEPTH=1 REALPATH=0 LS=0
 declare -- FILETYPE='' SHBANG=''
 declare -A EXT=()
 
-# Find config file (FHS search order)
+# Config file search paths (FHS order, script dir last for dev)
 declare -a CONFIG_PATHS=(
   /etc/"$SCRIPT_NAME"/types.conf
   /usr/local/share/"$SCRIPT_NAME"/types.conf
   /usr/share/"$SCRIPT_NAME"/types.conf
   "$SCRIPT_DIR"/types.conf
 )
+
+# find_config: Return first readable config path, or fail
 find_config() {
   local -- path
   for path in "${CONFIG_PATHS[@]}"; do
@@ -36,6 +44,7 @@ find_config() {
   return 1
 }
 
+# edit_config: Interactive config editor with optional symlink creation
 edit_config() {
   local -- config_file
   echo "Edit $SCRIPT_NAME config file:"
@@ -65,6 +74,7 @@ edit_config() {
   exit
 }
 
+# manage_symlinks: List or create symlinks defined in config (action: list|create)
 manage_symlinks() {
   local -- action=${1:-list} target_dir=${2:-$SCRIPT_DIR}
   local -a symlinks=()
@@ -94,6 +104,7 @@ manage_symlinks() {
   fi
 }
 
+# usage_generic: Help text when invoked directly (not via symlink)
 usage_generic() {
   cat <<HELP
 Usage: $SCRIPT_NAME [OPTIONS]
@@ -145,10 +156,10 @@ config_line=$(grep -v '^[[:blank:]]*#\|^[[:blank:]]*$' "$CONFIG_FILE" \
   | grep "^${TYPE_NAME}:" \
   | head -n1) || die 1 "Unknown symlink ${TYPE_NAME@Q}. Edit ${CONFIG_FILE@Q}"
 
-# Parse: symlink:filetype:pattern:extensions
+# Parse config: symlink:filetype:pattern:extensions
 declare -- pattern extensions
 IFS=':' read -r _ FILETYPE pattern extensions <<<"$config_line"
-SHBANG="^#!.*${pattern}"
+SHBANG="^#!.*${pattern}"  # Regex for shebang matching (e.g., ^#!.*bash)
 
 # Build EXT associative array
 declare -a ext_list
@@ -158,6 +169,7 @@ for e in "${ext_list[@]}"; do
   EXT[$e]=1
 done
 
+# usage: Help text for symlink invocation (includes type-specific info)
 usage() {
   cat <<HELP
 Usage: $TYPE_NAME [OPTIONS] [DIR...]
@@ -186,6 +198,7 @@ Examples:
 HELP
 }
 
+# --- Argument Parsing ---
 while (($#)); do case $1 in
   -E|--edit)      edit_config; exit 0 ;;
   -S|--symlinks)  manage_symlinks "${2:-}" "${3:-}"; exit 0 ;;
@@ -195,7 +208,8 @@ while (($#)); do case $1 in
   -d|--maxdepth)  MAXDEPTH=${2:-1}; shift ;;
   -r|--realpath)  REALPATH=1 ;;
   -l|--ls)        LS=1 ;;
-  -[ESVhdrl]*) #shellcheck disable=SC2046
+  -[ESVhdrl]*)    # Expand clustered options: -rl -> -r -l
+                  #shellcheck disable=SC2046
                   set -- '' $(printf -- '-%c ' $(grep -o . <<<"${1:1}")) "${@:2}" ;;
   -*)             die 22 "Unknown option ${1@Q}" ;;
   *)              DIRS+=("$1") ;;
@@ -207,6 +221,7 @@ for dir in "${DIRS[@]}"; do
   [[ -d "$dir" ]] || die 1 "Not a directory ${dir@Q}"
 done
 
+# --- File Discovery ---
 declare -a FILES=()
 if ((REALPATH)); then
   readarray -t FILES < <(find "${DIRS[@]}" -maxdepth "$MAXDEPTH" -type f -exec realpath -e -- {} \; | sort -u)
@@ -214,13 +229,16 @@ else
   readarray -t FILES < <(find "${DIRS[@]}" -maxdepth "$MAXDEPTH" -type f | sort)
 fi
 
+# --- Filter and Output ---
 declare -- file
 for file in "${FILES[@]}"; do
   [[ -n "$file" ]] || continue
   [[ -r "$file" ]] || continue
+  # Skip binary files (using file(1) MIME encoding detection)
   #shellcheck disable=SC2015
   [[ $(file -b --mime-encoding "$file") == binary ]] && continue ||:
 
+  # Match by shebang first, fall back to extension
   [[ "$(head -n1 "$file")" =~ $SHBANG ]] || {
     [[ -v EXT[${file##*.}] ]] || continue
   }
