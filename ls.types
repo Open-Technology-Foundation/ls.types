@@ -38,7 +38,7 @@ declare -a DIRS=() LS_FILES=()
 declare -i MAXDEPTH=1 REALPATH=0 LS=0
 
 declare -- FILETYPE='' SHBANG=''
-declare -A EXT=()
+declare -Ai EXT=()
 
 # Config file search paths (FHS order, script dir last for dev)
 declare -a CONFIG_PATHS=(
@@ -224,11 +224,11 @@ while (($#)); do case $1 in
   -V|--version)   echo "$TYPE_NAME $VERSION"; exit 0 ;;
   -h|--help)      usage; exit 0 ;;
 
-  -d|--maxdepth)  MAXDEPTH=${2:-1}; shift ;;
-  -[0123456789]*) MAXDEPTH=${1:1} ;;
   -r|--realpath)  REALPATH=1 ;;
   -l|--ls)        LS=1 ;;
-  -[Vhdrl]*)      # Expand clustered options: -rl -> -r -l
+  -d|--maxdepth)  MAXDEPTH=${2:-1}; shift ;;
+  -[0123456789]*) MAXDEPTH=${1:1} ;;
+  -[Vhrld]*)      # Expand clustered options: -rl -> -r -l
                   #shellcheck disable=SC2046
                   set -- '' $(printf -- '-%c ' $(grep -o . <<<"${1:1}")) "${@:2}" ;;
   -*)             die 22 "Unknown option ${1@Q}" ;;
