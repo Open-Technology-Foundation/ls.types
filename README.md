@@ -7,21 +7,28 @@ A single script that serves as multiple commands via symlink dispatch. Call it a
 ## Installation
 
 ```bash
-# Clone or copy to your preferred location
-cd /path/to/ls.types
+# Clone repository
+git clone https://github.com/Open-Technology-Foundation/ls.types.git
+cd ls.types
 
-# Create symlinks in script directory
-./ls.types -S create
+# System-wide install (root)
+sudo make install
 
-# System-wide install (optional)
-sudo mkdir -p /usr/local/share/ls.types
-sudo cp ls.types /usr/local/share/ls.types/
-sudo cp types.conf /usr/local/share/ls.types/
-sudo ln -s /usr/local/share/ls.types/ls.types /usr/local/bin/lsb
-sudo ln -s /usr/local/share/ls.types/ls.types /usr/local/bin/lsp
+# User install (no root)
+make install
 
-# Or add to PATH via local bin
-ln -s /path/to/ls.types/lsb ~/.local/bin/
+# Uninstall
+[sudo] make uninstall
+```
+
+| Context | Script | Config |
+|---------|--------|--------|
+| `sudo make install` | `/usr/local/bin/` | `/etc/ls.types/` |
+| `make install` | `~/.local/bin/` | `~/.local/share/ls.types/` |
+
+**Manual setup** (without make):
+```bash
+./ls.types -S create      # Create symlinks in script directory
 ```
 
 ## Usage
@@ -165,6 +172,6 @@ lsb -S create /target     # In specified directory
 
 ## License
 
-MIT
+GPL-3.0
 
 #fin
