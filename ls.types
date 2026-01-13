@@ -20,6 +20,20 @@ declare -r TYPE_NAME=${0##*/}  # Symlink name determines behavior
 error() { >&2 echo "$SCRIPT_NAME: $TYPE_NAME: error: $*"; }
 die() { (($# < 2)) || error "${@:2}"; exit "${1:-0}"; }
 
+# head1 - Return first line from file (much faster than head -n 1)
+head1() {
+  # synopsis: head1 [FILE]|<stdin
+  local -a MAPFILE
+  if (($#)); then
+    # If a filename is provided, read from the file
+    mapfile -t -n 1 < "$1"
+  else
+    # If no filename is provided, read from stdin
+    mapfile -t -n 1
+  fi
+  ((${#MAPFILE[@]}==0)) || printf '%s' "${MAPFILE[0]}"
+}
+
 declare -a DIRS=() LS_FILES=()
 declare -i MAXDEPTH=1 REALPATH=0 LS=0
 
@@ -147,17 +161,17 @@ esac
 # Show generic help/version when invoked directly (not via symlink)
 if [[ "$TYPE_NAME" == "$SCRIPT_NAME" ]]; then
   case ${1:-} in
-    -V|--version)  echo "$SCRIPT_NAME $VERSION"; exit 0 ;;
-    -h|--help)     usage_generic; exit 0 ;;
-    '') usage_generic; exit 0 ;;
-    *)  die 1 "Unknown symlink ${TYPE_NAME@Q}. Use -S list to see available symlinks" ;;
+    -V|--version) echo "$SCRIPT_NAME $VERSION"; exit 0 ;;
+    -h|--help)    usage_generic; exit 0 ;;
+    '')           >&2 usage_generic; exit 1 ;;
+    *)            die 1 "Unknown symlink ${TYPE_NAME@Q}. Use -S list to see available symlinks" ;;
   esac
 fi
 
 declare -- config_line
 config_line=$(grep -v '^[[:blank:]]*#\|^[[:blank:]]*$' "$CONFIG_FILE" \
   | grep "^${TYPE_NAME}:" \
-  | head -n1) || die 1 "Unknown symlink ${TYPE_NAME@Q}. Edit ${CONFIG_FILE@Q}"
+  | head1) || die 1 "Unknown symlink ${TYPE_NAME@Q}. Edit ${CONFIG_FILE@Q}"
 
 # Parse config: symlink:filetype:pattern:extensions
 declare -- pattern extensions
@@ -211,6 +225,7 @@ while (($#)); do case $1 in
   -h|--help)      usage; exit 0 ;;
 
   -d|--maxdepth)  MAXDEPTH=${2:-1}; shift ;;
+  -[0123456789]*) MAXDEPTH=${1:1} ;;
   -r|--realpath)  REALPATH=1 ;;
   -l|--ls)        LS=1 ;;
   -[ESVhdrl]*)    # Expand clustered options: -rl -> -r -l
@@ -244,7 +259,7 @@ for file in "${FILES[@]}"; do
   [[ $(file -b --mime-encoding "$file") == binary ]] && continue ||:
 
   # Match by shebang first, fall back to extension
-  [[ "$(head -n1 "$file")" =~ $SHBANG ]] || {
+  [[ "$(head1 "$file")" =~ $SHBANG ]] || {
     [[ -v EXT[${file##*.}] ]] || continue
   }
 

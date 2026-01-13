@@ -4,6 +4,8 @@ CLAUDE.md
 ls.bash
 ls.python
 ls.php
+ls.js
+ls.perl
 ls.*[!types]
 .claude/
 BASH-CODING-STANDARD.md
