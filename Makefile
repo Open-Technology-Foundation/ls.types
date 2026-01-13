@@ -6,7 +6,7 @@
 
 SCRIPT := ls.types
 CONFIG := types.conf
-SYMLINKS := lsb lsbash lsp lspython lsphp
+SYMLINKS := ls.bash ls.python ls.php
 
 # Detect root vs user install
 ifeq ($(shell id -u),0)

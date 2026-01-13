@@ -2,7 +2,7 @@
 
 List script files by language type using shebang detection or file extension.
 
-A single script that serves as multiple commands via symlink dispatch. Call it as `lsb` for Bash files, `lsp` for Python, `lsphp` for PHP, etc.
+A single script that serves as multiple commands via symlink dispatch. Call it as `ls.bash` for Bash files, `ls.python` for Python, `ls.php` for PHP, etc.
 
 ## Installation
 
@@ -34,14 +34,14 @@ make install
 ## Usage
 
 ```bash
-lsb                       # Bash files in current dir
-lsb /ai/scripts           # Bash files in specified dir
-lsb /dir1 /dir2           # Search multiple directories
-lsb -d 2 .                # Depth 2 (recursive)
-lsb -rl /ai/scripts       # Realpath + ls listing (clustered options)
+ls.bash                   # Bash files in current dir
+ls.bash /ai/scripts       # Bash files in specified dir
+ls.bash /dir1 /dir2       # Search multiple directories
+ls.bash -d 2 .            # Depth 2 (recursive)
+ls.bash -rl /ai/scripts   # Realpath + ls listing (clustered options)
 
-lsp .                     # Python files
-lsphp /var/www            # PHP files
+ls.python .               # Python files
+ls.php /var/www           # PHP files
 ```
 
 ## Options
@@ -64,9 +64,9 @@ Config file format (`types.conf`):
 
 ```
 symlink:filetype:shebang_pattern:extensions
-lsb:Bash:bash:sh,bash
-lsp:Python:python:py,python
-lsphp:PHP:php:php
+ls.bash:Bash:bash:sh,bash
+ls.python:Python:python:py,python
+ls.php:PHP:php:php
 ```
 
 **Fields:**
@@ -85,22 +85,22 @@ lsphp:PHP:php:php
 ### Adding a New Language
 
 ```bash
-lsb -E                    # Launch interactive config editor
+ls.bash -E                # Launch interactive config editor
 ```
 
 Add entry:
 ```
-lsjs:JavaScript:node:js,mjs,cjs
+ls.js:JavaScript:node:js,mjs,cjs
 ```
 
 Create symlinks:
 ```bash
-lsb -S create
+ls.bash -S create
 ```
 
 Use:
 ```bash
-lsjs .
+ls.js .
 ```
 
 ## File Matching
@@ -116,27 +116,27 @@ Files are matched using priority-based logic:
 
 **Plain** (default):
 ```bash
-lsb /scripts
+ls.bash /scripts
 # /scripts/deploy.sh
 # /scripts/backup.sh
 ```
 
 **Realpath** (`-r`):
 ```bash
-lsb -r /scripts
+ls.bash -r /scripts
 # /home/user/scripts/deploy.sh
 # /home/user/scripts/backup.sh
 ```
 
 **Listing** (`-l`):
 ```bash
-lsb -l /scripts
+ls.bash -l /scripts
 # -rwxr-xr-x 1 user group 1.2K 2026-01-13 09:15 /scripts/deploy.sh
 ```
 
 **Combined** (`-rl`):
 ```bash
-lsb -rl /scripts
+ls.bash -rl /scripts
 # Absolute paths with ls -lhA formatting
 ```
 
@@ -144,16 +144,16 @@ lsb -rl /scripts
 
 **List symlinks:**
 ```bash
-lsb -S                    # Or: lsb -S list
+ls.bash -S                # Or: ls.bash -S list
 # Symlinks defined in /path/to/types.conf:
-#   lsb          [exists]  -> /path/to/ls.types
-#   lsp          [missing]
+#   ls.bash      [exists]  -> /path/to/ls.types
+#   ls.python    [missing]
 ```
 
 **Create symlinks:**
 ```bash
-lsb -S create             # In script directory
-lsb -S create /target     # In specified directory
+ls.bash -S create         # In script directory
+ls.bash -S create /target # In specified directory
 ```
 
 ## Exit Codes
