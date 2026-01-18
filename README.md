@@ -39,6 +39,7 @@ ls.bash /ai/scripts       # Bash files in specified dir
 ls.bash /dir1 /dir2       # Search multiple directories
 ls.bash -d 2 .            # Depth 2 (recursive)
 ls.bash -rl /ai/scripts   # Realpath + ls listing (clustered options)
+ls.bash -L /scripts       # Include symlinked files
 
 ls.python .               # Python files
 ls.php /var/www           # PHP files
@@ -51,12 +52,13 @@ ls.php /var/www           # PHP files
 | `-d, --maxdepth N` | Max find depth (default: 1) |
 | `-r, --realpath` | Output absolute paths |
 | `-l, --ls` | Format as `ls -lhA --color=always` listing |
+| `-L, --follow` | Follow symbolic links |
 | `-E, --edit` | Interactive config editor |
 | `-S, --symlinks [ACTION] [DIR]` | Manage symlinks (list\|create) |
 | `-V, --version` | Show version |
 | `-h, --help` | Show help |
 
-Short options can be clustered: `-rl` is equivalent to `-r -l`.
+Short options can be clustered: `-Lrl` is equivalent to `-L -r -l`.
 
 ## Configuration
 
