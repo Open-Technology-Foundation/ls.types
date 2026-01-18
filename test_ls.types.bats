@@ -77,6 +77,26 @@ EOF
 #!/bin/bash
 echo "spaces"
 EOF
+
+  # Symlink test fixtures
+  TEST_SYMLINKS="$TEST_DIR/symlinks"
+  mkdir -p "$TEST_SYMLINKS/realdir"
+
+  # Real file and symlinked file
+  cat > "$TEST_SYMLINKS/real.sh" <<'EOF'
+#!/bin/bash
+echo "real"
+EOF
+  ln -s real.sh "$TEST_SYMLINKS/link.sh"
+
+  # File in real directory
+  cat > "$TEST_SYMLINKS/realdir/nested.sh" <<'EOF'
+#!/bin/bash
+echo "nested"
+EOF
+
+  # Symlinked directory
+  ln -s realdir "$TEST_SYMLINKS/linkeddir"
 }
 
 teardown() {
@@ -103,13 +123,13 @@ teardown() {
 @test "version: -V shows version" {
   run "$LS_BASH" -V
   [[ $status -eq 0 ]]
-  [[ "$output" == "ls.bash 1.0.0" ]]
+  [[ "$output" == "ls.bash 1.1.0" ]]
 }
 
 @test "version: --version shows version" {
   run "$LS_BASH" --version
   [[ $status -eq 0 ]]
-  [[ "$output" == *"1.0.0"* ]]
+  [[ "$output" == *"1.1.0"* ]]
 }
 
 @test "error: unknown option exits 22" {
@@ -290,6 +310,66 @@ teardown() {
   [[ $status -eq 1 ]]
   [[ "$output" == *"error"* ]]
   [[ "$output" == *"Directory not found"* ]]
+}
+
+# =============================================================================
+# Symlink Following (-L/--follow)
+# =============================================================================
+
+@test "follow: help shows -L option" {
+  run "$LS_BASH" -h
+  [[ $status -eq 0 ]]
+  [[ "$output" == *"-L, --follow"* ]]
+  [[ "$output" == *"symbolic links"* ]]
+}
+
+@test "follow: default ignores symlinked files" {
+  run "$LS_BASH" "$TEST_SYMLINKS"
+  [[ $status -eq 0 ]]
+  [[ "$output" == *"real.sh"* ]]
+  [[ "$output" != *"link.sh"* ]]
+}
+
+@test "follow: -L finds symlinked files" {
+  run "$LS_BASH" -L "$TEST_SYMLINKS"
+  [[ $status -eq 0 ]]
+  [[ "$output" == *"real.sh"* ]]
+  [[ "$output" == *"link.sh"* ]]
+}
+
+@test "follow: --follow finds symlinked files" {
+  run "$LS_BASH" --follow "$TEST_SYMLINKS"
+  [[ $status -eq 0 ]]
+  [[ "$output" == *"link.sh"* ]]
+}
+
+@test "follow: default ignores symlinked directories" {
+  run "$LS_BASH" -d 2 "$TEST_SYMLINKS"
+  [[ $status -eq 0 ]]
+  [[ "$output" == *"realdir/nested.sh"* ]]
+  [[ "$output" != *"linkeddir/nested.sh"* ]]
+}
+
+@test "follow: -L traverses symlinked directories" {
+  run "$LS_BASH" -L -d 2 "$TEST_SYMLINKS"
+  [[ $status -eq 0 ]]
+  [[ "$output" == *"realdir/nested.sh"* ]]
+  [[ "$output" == *"linkeddir/nested.sh"* ]]
+}
+
+@test "follow: -L2 clustered options work" {
+  run "$LS_BASH" -L2 "$TEST_SYMLINKS"
+  [[ $status -eq 0 ]]
+  [[ "$output" == *"link.sh"* ]]
+  [[ "$output" == *"linkeddir/nested.sh"* ]]
+}
+
+@test "follow: -Ll combines follow and ls format" {
+  run "$LS_BASH" -Ll "$TEST_SYMLINKS"
+  [[ $status -eq 0 ]]
+  [[ "$output" == *"link.sh"* ]]
+  [[ "$output" == *"real.sh"* ]]
+  [[ "$output" == *"rw"* ]]
 }
 
 # =============================================================================

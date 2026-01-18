@@ -35,7 +35,7 @@ head1() {
 }
 
 declare -a DIRS=() LS_FILES=()
-declare -i MAXDEPTH=1 REALPATH=0 LS=0
+declare -i MAXDEPTH=1 REALPATH=0 LS=0 FOLLOW_SYMLINKS=0
 
 declare -- FILETYPE='' SHBANG=''
 declare -Ai EXT=()
@@ -118,9 +118,9 @@ manage_symlinks() {
   fi
 }
 
-# usage_generic: Help text when invoked directly (not via symlink)
-usage_generic() {
-  cat <<HELP
+# show_help_generic: Help text when invoked directly (not via symlink)
+show_help_generic() {
+  cat <<GENERIC_HELP
 Usage: $SCRIPT_NAME [OPTIONS]
        <symlink> [OPTIONS] [DIR...]
 
@@ -145,7 +145,7 @@ Examples:
   $SCRIPT_NAME -S list      # Show available symlinks
   lsb -h                    # Bash-specific help
   lsb -rl /scripts          # List Bash files with realpath + ls format
-HELP
+GENERIC_HELP
 }
 
 # Load config for this symlink name
@@ -162,8 +162,8 @@ esac
 if [[ "$TYPE_NAME" == "$SCRIPT_NAME" ]]; then
   case ${1:-} in
     -V|--version) echo "$SCRIPT_NAME $VERSION"; exit 0 ;;
-    -h|--help)    usage_generic; exit 0 ;;
-    '')           >&2 usage_generic; exit 1 ;;
+    -h|--help)    show_help_generic; exit 0 ;;
+    '')           >&2 show_help_generic; exit 1 ;;
     *)            die 1 "Unknown symlink ${TYPE_NAME@Q}. Use -S list to see available symlinks" ;;
   esac
 fi
@@ -187,7 +187,7 @@ for e in "${ext_list[@]}"; do
 done
 
 # usage: Help text for symlink invocation (includes type-specific info)
-usage() {
+show_help() {
   cat <<HELP
 Usage: $TYPE_NAME [OPTIONS] [DIR...]
 
@@ -197,6 +197,7 @@ Options:
   -d, --maxdepth N  Max find depth (default: 1)
   -r, --realpath    Output absolute paths
   -l, --ls          Output as ls -lhA listing
+  -L, --follow      Follow symbolic links
   -E, --edit        Edit $SCRIPT_NAME config file
   -S, --symlinks [ACTION] [DIR]
                     List or create symlinks (ACTION: list|create)
@@ -219,18 +220,19 @@ HELP
 
 # --- Argument Parsing ---
 while (($#)); do case $1 in
-  -E|--edit)      edit_config ;;
+  -E|--edit)      edit_config; exit $? ;;
   -S|--symlinks)  manage_symlinks "${2:-}" "${3:-}"; exit 0 ;;
   -V|--version)   echo "$TYPE_NAME $VERSION"; exit 0 ;;
-  -h|--help)      usage; exit 0 ;;
+  -h|--help)      show_help; exit 0 ;;
 
   -r|--realpath)  REALPATH=1 ;;
   -l|--ls)        LS=1 ;;
+  -L|--follow)    FOLLOW_SYMLINKS=1 ;;
   -d|--maxdepth)  MAXDEPTH=${2:-1}; shift ;;
   -[0123456789]*) MAXDEPTH=${1:1} ;;
-  -[Vhrld]*)      # Expand clustered options: -rl -> -r -l
+  -[VhrldL]*)     # Expand clustered options: -rl -> -r -l
                   #shellcheck disable=SC2046
-                  set -- '' $(printf -- '-%c ' $(grep -o . <<<"${1:1}")) "${@:2}" ;;
+                  set -- "${1:0:2}" "-${1:2}" "${@:2}"; continue ;;
   -*)             die 22 "Unknown option ${1@Q}" ;;
   *)              DIRS+=("$1") ;;
 esac; shift; done
@@ -242,11 +244,13 @@ for dir in "${DIRS[@]}"; do
 done
 
 # --- File Discovery ---
-declare -a FILES=()
+declare -a FILES=() FIND_OPTS=() FILE_OPTS=()
+((FOLLOW_SYMLINKS)) && { FIND_OPTS+=(-L); FILE_OPTS+=(-L); }
+
 if ((REALPATH)); then
-  readarray -t FILES < <(find -- "${DIRS[@]}" -maxdepth "$MAXDEPTH" -type f -exec realpath -e -- {} \; | sort -u)
+  readarray -t FILES < <(find "${FIND_OPTS[@]}" -- "${DIRS[@]}" -maxdepth "$MAXDEPTH" -type f -exec realpath -e -- {} \; | sort -u)
 else
-  readarray -t FILES < <(find -- "${DIRS[@]}" -maxdepth "$MAXDEPTH" -type f | sort)
+  readarray -t FILES < <(find "${FIND_OPTS[@]}" -- "${DIRS[@]}" -maxdepth "$MAXDEPTH" -type f | sort)
 fi
 
 # --- Filter and Output ---
@@ -256,7 +260,7 @@ for file in "${FILES[@]}"; do
   [[ -r "$file" ]] || continue
   # Skip binary files (using file(1) MIME encoding detection)
   #shellcheck disable=SC2015
-  [[ $(file -b --mime-encoding "$file") == binary ]] && continue ||:
+  [[ $(file "${FILE_OPTS[@]}" -b --mime-encoding "$file") == binary ]] && continue ||:
 
   # Match by shebang first, fall back to extension
   [[ "$(head1 "$file")" =~ $SHBANG ]] || {
