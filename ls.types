@@ -230,8 +230,7 @@ while (($#)); do case $1 in
   -L|--follow)    FOLLOW_SYMLINKS=1 ;;
   -d|--maxdepth)  MAXDEPTH=${2:-1}; shift ;;
   -[0123456789]*) MAXDEPTH=${1:1} ;;
-  -[VhrldL]*)     # Expand clustered options: -rl -> -r -l
-                  #shellcheck disable=SC2046
+  -[VhrldL]?*) # Expand clustered options: -rl -> -r -l
                   set -- "${1:0:2}" "-${1:2}" "${@:2}"; continue ;;
   -*)             die 22 "Unknown option ${1@Q}" ;;
   *)              DIRS+=("$1") ;;
