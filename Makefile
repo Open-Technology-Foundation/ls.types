@@ -1,67 +1,49 @@
-# ls.types Makefile
-#
-# Root install:     sudo make install
-# User install:     make install
-# Uninstall:        [sudo] make uninstall
+# Makefile - Install ls.types
+# BCS1212 compliant
 
-SCRIPT := ls.types
-CONFIG := types.conf
+PREFIX  ?= /usr/local
+BINDIR  ?= $(PREFIX)/bin
+CONFDIR ?= /etc/ls.types
+DESTDIR ?=
+
 SYMLINKS := ls.bash ls.python ls.php ls.js ls.perl ls.ruby ls.sh
 
-# Detect root vs user install
-ifeq ($(shell id -u),0)
-  PREFIX := /usr/local
-  BINDIR := $(PREFIX)/bin
-  CONFDIR := /etc/ls.types
-else
-  PREFIX := $(HOME)/.local
-  BINDIR := $(PREFIX)/bin
-  CONFDIR := $(PREFIX)/share/ls.types
-endif
-
-.PHONY: all install uninstall symlinks help
+.PHONY: all install uninstall check help
 
 all: help
 
-help:
-	@echo "Usage:"
-	@echo "  sudo make install    Install system-wide to /usr/local/bin"
-	@echo "  make install         Install for current user to ~/.local/bin"
-	@echo "  [sudo] make uninstall"
-	@echo ""
-	@echo "Paths (current context):"
-	@echo "  Script:  $(BINDIR)/$(SCRIPT)"
-	@echo "  Config:  $(CONFDIR)/$(CONFIG)"
-	@echo "  Symlinks: $(SYMLINKS)"
-
-install: $(BINDIR) $(CONFDIR)
-	@echo "Installing $(SCRIPT) to $(BINDIR)"
-	install -m 755 $(SCRIPT) $(BINDIR)/$(SCRIPT)
-	@if [ ! -f $(CONFDIR)/$(CONFIG) ]; then \
-	  echo "Installing $(CONFIG) to $(CONFDIR)"; \
-	  install -m 644 $(CONFIG) $(CONFDIR)/$(CONFIG); \
-	else \
-	  echo "Config exists: $(CONFDIR)/$(CONFIG) (skipped)"; \
+install:
+	install -d $(DESTDIR)$(BINDIR)
+	install -m 755 ls.types $(DESTDIR)$(BINDIR)/ls.types
+	install -d $(DESTDIR)$(CONFDIR)
+	@if [ ! -f $(DESTDIR)$(CONFDIR)/types.conf ]; then \
+	  install -m 644 types.conf $(DESTDIR)$(CONFDIR)/types.conf; \
 	fi
-	@echo "Creating symlinks in $(BINDIR)"
 	@for link in $(SYMLINKS); do \
-	  ln -sf $(BINDIR)/$(SCRIPT) $(BINDIR)/$$link; \
-	  echo "  $$link -> $(SCRIPT)"; \
+	  ln -sf ls.types $(DESTDIR)$(BINDIR)/$$link; \
 	done
-	@echo "Done."
+	@if [ -z "$(DESTDIR)" ]; then $(MAKE) --no-print-directory check; fi
 
 uninstall:
-	@echo "Removing $(SCRIPT) from $(BINDIR)"
-	rm -f $(BINDIR)/$(SCRIPT)
-	@echo "Removing symlinks from $(BINDIR)"
+	rm -f $(DESTDIR)$(BINDIR)/ls.types
 	@for link in $(SYMLINKS); do \
-	  rm -f $(BINDIR)/$$link; \
+	  rm -f $(DESTDIR)$(BINDIR)/$$link; \
 	done
-	@echo "Config preserved: $(CONFDIR)/$(CONFIG)"
-	@echo "Done."
 
-$(BINDIR):
-	mkdir -p $(BINDIR)
+check:
+	@command -v ls.types >/dev/null 2>&1 \
+	  && echo 'ls.types: OK' \
+	  || echo 'ls.types: NOT FOUND (check PATH)'
 
-$(CONFDIR):
-	mkdir -p $(CONFDIR)
+help:
+	@echo 'Usage: make [target]'
+	@echo ''
+	@echo 'Targets:'
+	@echo '  install     Install to $(PREFIX)'
+	@echo '  uninstall   Remove installed files'
+	@echo '  check       Verify installation'
+	@echo '  help        Show this message'
+	@echo ''
+	@echo 'Install from GitHub:'
+	@echo '  git clone https://github.com/Open-Technology-Foundation/ls.types.git'
+	@echo '  cd ls.types && sudo make install'
