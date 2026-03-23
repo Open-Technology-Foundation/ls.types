@@ -3,7 +3,7 @@
 #
 # Symlink dispatch: behavior determined by invocation name ($TYPE_NAME)
 # Config format: symlink:filetype:shebang_pattern:extensions (colon-delimited)
-# Example: lsb:Bash:bash:sh,bash
+# Example: ls.bash:Bash:bash:sh,bash
 #
 # Key vars: SCRIPT_NAME (canonical), TYPE_NAME (symlink), EXT[] (extensions)
 set -euo pipefail
@@ -18,7 +18,8 @@ declare -r SCRIPT_NAME=${SCRIPT_PATH##*/}
 declare -r TYPE_NAME=${0##*/}  # Symlink name determines behavior
 
 error() { >&2 echo "$SCRIPT_NAME: $TYPE_NAME: error: $*"; }
-die() { (($# < 2)) || error "${@:2}"; exit "${1:-0}"; }
+die()   { (($# < 2)) || error "${@:2}"; exit "${1:-0}"; }
+noarg() { (($# > 1)) || die 22 "Option ${1@Q} requires an argument"; }  # validate option has arg
 
 # head1 - Return first line from file (much faster than head -n 1)
 head1() {
@@ -37,7 +38,7 @@ head1() {
 declare -a DIRS=() LS_FILES=()
 declare -i MAXDEPTH=1 REALPATH=0 LS=0 FOLLOW_SYMLINKS=0
 
-declare -- FILETYPE='' SHBANG=''
+declare -- FILETYPE='' SHBANG='' CONFIG_FILE=''
 declare -Ai EXT=()
 
 # Config file search paths (FHS order, script dir last for dev)
@@ -78,6 +79,7 @@ edit_config() {
     break
   done
 
+  [[ -n "$config_file" ]] || die 1 'No config file selected'
   read -r -p "Create symlinks in ${config_file@Q}? y/n "
   echo
   if [[ "${REPLY,,}" == y ]]; then
@@ -143,52 +145,54 @@ $("$0" --symlinks list)
 
 Examples:
   $SCRIPT_NAME -S list      # Show available symlinks
-  lsb -h                    # Bash-specific help
-  lsb -rl /scripts          # List Bash files with realpath + ls format
+  ls.bash -h                # Bash-specific help
+  ls.bash -rl /scripts      # List Bash files with realpath + ls format
 GENERIC_HELP
 }
 
-# Load config for this symlink name
-declare -- CONFIG_FILE
-CONFIG_FILE=$(find_config) || die 1 'No config file found'
+main() {
+  # Load config for this symlink name
+  CONFIG_FILE=$(find_config) || die 1 'No config file found'
 
-# Handle global options before TYPE_NAME lookup
-case ${1:-} in
-  -E|--edit)     edit_config ;;
-  -S|--symlinks) manage_symlinks "${2:-}" "${3:-}"; exit 0 ;;
-esac
-
-# Show generic help/version when invoked directly (not via symlink)
-if [[ "$TYPE_NAME" == "$SCRIPT_NAME" ]]; then
+  # Handle global options before TYPE_NAME lookup
   case ${1:-} in
-    -V|--version) echo "$SCRIPT_NAME $VERSION"; exit 0 ;;
-    -h|--help)    show_help_generic; exit 0 ;;
-    '')           >&2 show_help_generic; exit 1 ;;
-    *)            die 1 "Unknown symlink ${TYPE_NAME@Q}. Use -S list to see available symlinks" ;;
+    -E|--edit)     edit_config ;;
+    -S|--symlinks) manage_symlinks "${2:-}" "${3:-}"; exit 0 ;;
   esac
-fi
 
-declare -- config_line
-config_line=$(grep -v '^[[:blank:]]*#\|^[[:blank:]]*$' "$CONFIG_FILE" \
-  | grep "^${TYPE_NAME}:" \
-  | head1) || die 1 "Unknown symlink ${TYPE_NAME@Q}. Edit ${CONFIG_FILE@Q}"
+  # Show generic help/version when invoked directly (not via symlink)
+  if [[ "$TYPE_NAME" == "$SCRIPT_NAME" ]]; then
+    case ${1:-} in
+      -V|--version) echo "$SCRIPT_NAME $VERSION"; exit 0 ;;
+      -h|--help)    show_help_generic; exit 0 ;;
+      '')           >&2 show_help_generic; exit 1 ;;
+      *)            die 1 "Unknown symlink ${TYPE_NAME@Q}. Use -S list to see available symlinks" ;;
+    esac
+  fi
 
-# Parse config: symlink:filetype:pattern:extensions
-declare -- pattern extensions
-IFS=':' read -r _ FILETYPE pattern extensions <<<"$config_line"
-SHBANG="^#!.*${pattern}"  # Regex for shebang matching (e.g., ^#!.*bash)
+  declare -- config_line
+  config_line=$(awk -F: -v name="$TYPE_NAME" '
+    /^[[:blank:]]*#/ || /^[[:blank:]]*$/ { next }
+    $1 == name { print; exit }
+  ' "$CONFIG_FILE") || true
+  [[ -n "$config_line" ]] || die 1 "Unknown symlink ${TYPE_NAME@Q}. Edit ${CONFIG_FILE@Q}"
 
-# Build EXT associative array
-declare -a ext_list
-IFS=',' read -ra ext_list <<<"$extensions"
-declare -- e
-for e in "${ext_list[@]}"; do
-  EXT[$e]=1
-done
+  # Parse config: symlink:filetype:pattern:extensions
+  declare -- pattern extensions
+  IFS=':' read -r _ FILETYPE pattern extensions <<<"$config_line"
+  SHBANG="^#!.*${pattern}"  # Regex for shebang matching (e.g., ^#!.*bash)
 
-# usage: Help text for symlink invocation (includes type-specific info)
-show_help() {
-  cat <<HELP
+  # Build EXT associative array
+  declare -a ext_list
+  IFS=',' read -ra ext_list <<<"$extensions"
+  declare -- e
+  for e in "${ext_list[@]}"; do
+    EXT[$e]=1
+  done
+
+  # show_help: Help text for symlink invocation (includes type-specific info)
+  show_help() {
+    cat <<HELP
 Usage: $TYPE_NAME [OPTIONS] [DIR...]
 
 List $FILETYPE script files by shebang or extension (${!EXT[@]}).
@@ -198,6 +202,7 @@ Options:
   -r, --realpath    Output absolute paths
   -l, --ls          Output as ls -lhA listing
   -L, --follow      Follow symbolic links
+  --                End of options
   -E, --edit        Edit $SCRIPT_NAME config file
   -S, --symlinks [ACTION] [DIR]
                     List or create symlinks (ACTION: list|create)
@@ -216,65 +221,72 @@ Examples:
   # Depth 1 in two dirs
   $TYPE_NAME --ls /my/scripts /my/backup
 HELP
-}
-
-# --- Argument Parsing ---
-while (($#)); do case $1 in
-  -E|--edit)      edit_config; exit $? ;;
-  -S|--symlinks)  manage_symlinks "${2:-}" "${3:-}"; exit 0 ;;
-  -V|--version)   echo "$TYPE_NAME $VERSION"; exit 0 ;;
-  -h|--help)      show_help; exit 0 ;;
-
-  -r|--realpath)  REALPATH=1 ;;
-  -l|--ls)        LS=1 ;;
-  -L|--follow)    FOLLOW_SYMLINKS=1 ;;
-  -d|--maxdepth)  MAXDEPTH=${2:-1}; shift ;;
-  -[0123456789]*) MAXDEPTH=${1:1} ;;
-  -[VhrldL]?*) # Expand clustered options: -rl -> -r -l
-                  set -- "${1:0:2}" "-${1:2}" "${@:2}"; continue ;;
-  -*)             die 22 "Unknown option ${1@Q}" ;;
-  *)              DIRS+=("$1") ;;
-esac; shift; done
-
-((${#DIRS[@]})) || DIRS=(.)
-declare -- dir
-for dir in "${DIRS[@]}"; do
-  [[ -d "$dir" ]] || die 1 "Not a directory ${dir@Q}"
-done
-
-# --- File Discovery ---
-declare -a FILES=() FIND_OPTS=() FILE_OPTS=()
-((FOLLOW_SYMLINKS)) && { FIND_OPTS+=(-L); FILE_OPTS+=(-L); }
-
-if ((REALPATH)); then
-  readarray -t FILES < <(find "${FIND_OPTS[@]}" -- "${DIRS[@]}" -maxdepth "$MAXDEPTH" -type f -exec realpath -e -- {} \; | sort -u)
-else
-  readarray -t FILES < <(find "${FIND_OPTS[@]}" -- "${DIRS[@]}" -maxdepth "$MAXDEPTH" -type f | sort)
-fi
-
-# --- Filter and Output ---
-declare -- file
-for file in "${FILES[@]}"; do
-  [[ -n "$file" ]] || continue
-  [[ -r "$file" ]] || continue
-  # Skip binary files (using file(1) MIME encoding detection)
-  #shellcheck disable=SC2015
-  [[ $(file "${FILE_OPTS[@]}" -b --mime-encoding "$file") == binary ]] && continue ||:
-
-  # Match by shebang first, fall back to extension
-  [[ "$(head1 "$file")" =~ $SHBANG ]] || {
-    [[ -v EXT[${file##*.}] ]] || continue
   }
 
-  if ((LS)); then
-    LS_FILES+=("$file")
-  else
-    printf '%s\n' "$file"
-  fi
-done
+  # --- Argument Parsing ---
+  while (($#)); do case $1 in
+    -E|--edit)      edit_config ;;
+    -S|--symlinks)  manage_symlinks "${2:-}" "${3:-}"; exit 0 ;;
+    -V|--version)   echo "$TYPE_NAME $VERSION"; exit 0 ;;
+    -h|--help)      show_help; exit 0 ;;
 
-if ((LS && ${#LS_FILES[@]})); then
-  /usr/bin/ls -lhA --color=always --time-style=long-iso "${LS_FILES[@]}"
-fi
+    -r|--realpath)  REALPATH=1 ;;
+    -l|--ls)        LS=1 ;;
+    -L|--follow)    FOLLOW_SYMLINKS=1 ;;
+    --)             shift; DIRS+=("$@"); break ;;
+    -d|--maxdepth)  noarg "$@"; shift
+                      [[ $1 =~ ^[0-9]+$ ]] || die 22 "Option '-d' requires a numeric argument: ${1@Q}"
+                      MAXDEPTH=$1 ;;
+    -[0123456789]*) [[ ${1:1} =~ ^[0-9]+$ ]] || die 22 "Invalid numeric option ${1@Q}"
+                      MAXDEPTH=${1:1} ;;
+    -[VhrldL]?*) # Expand clustered options: -rl -> -r -l
+                    set -- "${1:0:2}" "-${1:2}" "${@:2}"; continue ;;
+    -*)             die 22 "Unknown option ${1@Q}" ;;
+    *)              DIRS+=("$1") ;;
+  esac; shift; done
+
+  ((${#DIRS[@]})) || DIRS=(.)
+  declare -- dir
+  for dir in "${DIRS[@]}"; do
+    [[ -d "$dir" ]] || die 1 "Not a directory ${dir@Q}"
+  done
+
+  # --- File Discovery ---
+  declare -a FILES=() FIND_OPTS=() FILE_OPTS=()
+  ((FOLLOW_SYMLINKS)) && { FIND_OPTS+=(-L); FILE_OPTS+=(-L); }
+
+  if ((REALPATH)); then
+    readarray -t FILES < <(find "${FIND_OPTS[@]}" -- "${DIRS[@]}" -maxdepth "$MAXDEPTH" -type f -exec realpath -e -- {} \; | sort -u)
+  else
+    readarray -t FILES < <(find "${FIND_OPTS[@]}" -- "${DIRS[@]}" -maxdepth "$MAXDEPTH" -type f | sort)
+  fi
+
+  # --- Filter and Output ---
+  declare -- file
+  for file in "${FILES[@]}"; do
+    [[ -n "$file" ]] || continue
+    [[ -r "$file" ]] || continue
+    # Skip binary files (using file(1) MIME encoding detection)
+    #shellcheck disable=SC2015
+    [[ $(file "${FILE_OPTS[@]}" -b --mime-encoding "$file") == binary ]] && continue ||:
+
+    # Match by shebang first, fall back to extension
+    [[ "$(head1 "$file")" =~ $SHBANG ]] || {
+      [[ -v EXT[${file##*.}] ]] || continue
+    }
+
+    if ((LS)); then
+      LS_FILES+=("$file")
+    else
+      printf '%s\n' "$file"
+    fi
+  done
+
+  if ((LS && ${#LS_FILES[@]})); then
+    /usr/bin/ls -lhA --color=always --time-style=long-iso "${LS_FILES[@]}"
+  fi
+}
+
+main "$@"
 
 #fin

@@ -7,24 +7,16 @@ A single script that serves as multiple commands via symlink dispatch. Call it a
 ## Installation
 
 ```bash
-# Clone repository
 git clone https://github.com/Open-Technology-Foundation/ls.types.git
 cd ls.types
-
-# System-wide install (root)
 sudo make install
-
-# User install (no root)
-make install
-
-# Uninstall
-[sudo] make uninstall
 ```
 
-| Context | Script | Config |
-|---------|--------|--------|
-| `sudo make install` | `/usr/local/bin/` | `/etc/ls.types/` |
-| `make install` | `~/.local/bin/` | `~/.local/share/ls.types/` |
+Installs to `/usr/local/bin/` with config in `/etc/ls.types/`.
+
+```bash
+sudo make uninstall       # Remove installed files
+```
 
 **Manual setup** (without make):
 ```bash
@@ -53,6 +45,7 @@ ls.php /var/www           # PHP files
 | `-r, --realpath` | Output absolute paths |
 | `-l, --ls` | Format as `ls -lhA --color=always` listing |
 | `-L, --follow` | Follow symbolic links |
+| `--` | End of options |
 | `-E, --edit` | Interactive config editor |
 | `-S, --symlinks [ACTION] [DIR]` | Manage symlinks (list\|create) |
 | `-V, --version` | Show version |
@@ -74,7 +67,7 @@ ls.php:PHP:php:php
 **Fields:**
 - `symlink` - Command name (dispatch key)
 - `filetype` - Human-readable label
-- `shebang_pattern` - Regex matched against `^#!.*{pattern}`
+- `shebang_pattern` - Substring fragment inserted into regex `^#!.*{pattern}` (not a full regex — do not include anchors)
 - `extensions` - Comma-separated file extensions (no dots)
 
 ### Config Search Order (FHS-compliant)
@@ -164,7 +157,7 @@ ls.bash -S create /target # In specified directory
 |------|---------|
 | 0 | Success |
 | 1 | Config not found, invalid directory, or symlink creation failed |
-| 22 | Unknown option |
+| 22 | Invalid option or argument |
 
 ## Requirements
 

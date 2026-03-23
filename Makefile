@@ -4,6 +4,8 @@
 PREFIX  ?= /usr/local
 BINDIR  ?= $(PREFIX)/bin
 CONFDIR ?= /etc/ls.types
+MANDIR  ?= $(PREFIX)/share/man/man1
+COMPDIR ?= /etc/bash_completion.d
 DESTDIR ?=
 
 SYMLINKS := ls.bash ls.python ls.php ls.js ls.perl ls.ruby ls.sh
@@ -22,6 +24,17 @@ install:
 	@for link in $(SYMLINKS); do \
 	  ln -sf ls.types $(DESTDIR)$(BINDIR)/$$link; \
 	done
+	@if [ -f ls.types.1 ]; then \
+	  install -d $(DESTDIR)$(MANDIR); \
+	  install -m 644 ls.types.1 $(DESTDIR)$(MANDIR)/ls.types.1; \
+	  for link in $(SYMLINKS); do \
+	    ln -sf ls.types.1 $(DESTDIR)$(MANDIR)/$$link.1; \
+	  done; \
+	fi
+	@if [ -f ls.types.bash_completion ]; then \
+	  install -d $(DESTDIR)$(COMPDIR); \
+	  install -m 644 ls.types.bash_completion $(DESTDIR)$(COMPDIR)/ls.types; \
+	fi
 	@if [ -z "$(DESTDIR)" ]; then $(MAKE) --no-print-directory check; fi
 
 uninstall:
@@ -29,6 +42,11 @@ uninstall:
 	@for link in $(SYMLINKS); do \
 	  rm -f $(DESTDIR)$(BINDIR)/$$link; \
 	done
+	rm -f $(DESTDIR)$(MANDIR)/ls.types.1
+	@for link in $(SYMLINKS); do \
+	  rm -f $(DESTDIR)$(MANDIR)/$$link.1; \
+	done
+	rm -f $(DESTDIR)$(COMPDIR)/ls.types
 
 check:
 	@command -v ls.types >/dev/null 2>&1 \

@@ -1,0 +1,47 @@
+# shellcheck shell=bash
+# ls.types.bash_completion - Bash completion for ls.types and symlinks
+#
+# Install:
+#   sudo install -m 644 ls.types.bash_completion /etc/bash_completion.d/ls.types
+#   # Or source directly:
+#   source ls.types.bash_completion
+
+_ls_types() {
+  local cur prev
+  cur=${COMP_WORDS[COMP_CWORD]}
+  prev=${COMP_WORDS[COMP_CWORD-1]}
+
+  # Context-sensitive completion based on previous word
+  case $prev in
+    -d|--maxdepth)
+      mapfile -t COMPREPLY < <(compgen -W '1 2 3 4 5' -- "$cur")
+      return ;;
+    -S|--symlinks)
+      mapfile -t COMPREPLY < <(compgen -W 'list create' -- "$cur")
+      return ;;
+  esac
+
+  # Option completion when current word starts with -
+  if [[ $cur == -* ]]; then
+    mapfile -t COMPREPLY < <(compgen -W '
+      -d --maxdepth
+      -r --realpath
+      -l --ls
+      -L --follow
+      --
+      -E --edit
+      -S --symlinks
+      -V --version
+      -h --help
+    ' -- "$cur")
+    return
+  fi
+
+  # Default: directory completion for positional args
+  mapfile -t COMPREPLY < <(compgen -d -- "$cur")
+}
+
+complete -o filenames -F _ls_types \
+  ls.types ls.bash ls.python ls.php ls.js ls.perl ls.ruby ls.sh
+
+#fin

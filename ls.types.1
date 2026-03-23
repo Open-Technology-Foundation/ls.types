@@ -1,0 +1,284 @@
+.\" ls.types.1 - manpage for ls.types
+.\" Generated from ls.types v1.1.0
+.TH LS.TYPES 1 "2026-03-23" "ls.types 1.1.0" "User Commands"
+.SH NAME
+ls.types \- list script files by shebang or extension using symlink dispatch
+.SH SYNOPSIS
+.B ls.types
+.RB [ \-E ]
+.RB [ \-S
+.IR action ]
+.RB [ \-V ]
+.RB [ \-h ]
+.PP
+.I symlink
+.RB [ \-d
+.IR N ]
+.RB [ \-r ]
+.RB [ \-l ]
+.RB [ \-L ]
+.RB [ \-\- ]
+.RI [ DIR .\|.\|.]
+.SH DESCRIPTION
+.B ls.types
+is a single script that serves as multiple commands via symlink dispatch.
+Behavior is determined by the invocation name: call it as
+.B ls.bash
+for Bash files,
+.B ls.python
+for Python,
+.B ls.php
+for PHP, and so on.
+.PP
+Files are matched by shebang line first, falling back to file extension.
+Binary files are automatically excluded using
+.BR file (1)
+MIME encoding detection.
+Unreadable files are silently skipped.
+.SH OPTIONS
+When invoked directly as
+.BR ls.types ,
+only global options are available.
+When invoked via a symlink, all options apply.
+.SS Scanning Options
+.TP
+.BR \-d ", " \-\-maxdepth " " \fIN\fR
+Maximum directory depth for
+.BR find (1).
+Default: 1 (current directory only).
+A numeric shorthand
+.BI \- N
+is also accepted (e.g.,
+.B \-3
+for depth 3).
+.TP
+.BR \-r ", " \-\-realpath
+Output absolute paths (resolved via
+.BR realpath (1)).
+Duplicates from multiple directory arguments are removed.
+.TP
+.BR \-l ", " \-\-ls
+Format output as an
+.B ls \-lhA \-\-color=always \-\-time\-style=long\-iso
+listing.
+.TP
+.BR \-L ", " \-\-follow
+Follow symbolic links.
+Passes
+.B \-L
+to both
+.BR find (1)
+and
+.BR file (1),
+causing symlinked files and directories to be traversed.
+.TP
+.B \-\-
+End of options.
+All subsequent arguments are treated as directories.
+.SS Management Options
+.TP
+.BR \-E ", " \-\-edit
+Launch an interactive editor (uses
+.BR $EDITOR ,
+defaults to
+.BR nano )
+to modify the configuration file.
+Offers to create symlinks after editing.
+.TP
+.BR "\-S " \fR[\fIACTION\fR]\ [\fIDIR\fR] ", " "\-\-symlinks " \fR[\fIACTION\fR]\ [\fIDIR\fR]
+Manage symlinks defined in the configuration file.
+.IR ACTION
+is one of:
+.RS
+.TP
+.B list
+Show all defined symlinks and whether they exist (default).
+.TP
+.B create
+Create missing symlinks in
+.I DIR
+(defaults to the script directory).
+.RE
+.SS Informational Options
+.TP
+.BR \-V ", " \-\-version
+Print the program name and version number.
+.TP
+.BR \-h ", " \-\-help
+Display a help summary and exit.
+.SS Option Clustering
+Short options can be clustered:
+.B \-Lrl
+is equivalent to
+.BR "\-L \-r \-l" .
+.SH CONFIGURATION
+Type definitions are stored in a colon-delimited configuration file
+.BR types.conf .
+.SS Format
+.PP
+.in +4n
+.IR symlink : filetype : shebang_pattern : extensions
+.in
+.TP
+.I symlink
+Command name and dispatch key (e.g.,
+.BR ls.bash ).
+.TP
+.I filetype
+Human-readable label (e.g.,
+.BR Bash ).
+.TP
+.I shebang_pattern
+Substring fragment inserted into the regex
+.BR ^#!.*\fIpattern\fR .
+Must not contain anchors or be a full regex.
+.TP
+.I extensions
+Comma-separated file extensions without dots (e.g.,
+.BR sh,bash ).
+.SS Example
+.PP
+.in +4n
+.nf
+ls.bash:Bash:bash:sh,bash
+ls.python:Python:python:py,python
+ls.js:JavaScript:node:js,mjs,cjs
+ls.sh:Shell:/bin/sh:sh
+.fi
+.in
+.SS Search Order
+The first readable configuration file is used (FHS-compliant):
+.PP
+.in +4n
+.nf
+/etc/ls.types/types.conf
+/usr/local/share/ls.types/types.conf
+/usr/share/ls.types/types.conf
+\fI<script\-directory>\fR/types.conf
+.fi
+.in
+.SH FILE MATCHING
+.PP
+For each regular file found by
+.BR find (1):
+.IP 1. 4
+Skip if unreadable or binary (detected via
+.BR "file \-\-mime\-encoding" ).
+.IP 2. 4
+Match the first line against
+.BI ^#!.* pattern
+(shebang detection).
+.IP 3. 4
+If no shebang match, check the file extension against the configured extensions.
+.IP 4. 4
+Files matching either criterion are included in the output.
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 1
+Configuration not found, invalid directory, unknown symlink, or symlink creation failed.
+.TP
+.B 22
+Invalid option or argument (unknown option, missing or non-numeric
+.B \-d
+value).
+.SH ENVIRONMENT
+.TP
+.B EDITOR
+Editor used by
+.BR \-E / \-\-edit .
+Defaults to
+.BR nano .
+.SH FILES
+.TP
+.I /etc/ls.types/types.conf
+System-wide type definitions (installed by
+.BR "make install" ).
+.TP
+.I /usr/local/share/ls.types/types.conf
+Local override (FHS).
+.TP
+.I /usr/share/ls.types/types.conf
+Distribution-provided definitions.
+.SH EXAMPLES
+List Bash files in the current directory:
+.PP
+.in +4n
+.B ls.bash
+.in
+.PP
+Search two directories at depth 2 with
+.B ls
+formatting:
+.PP
+.in +4n
+.B ls.bash \-d 2 \-l /scripts /backup
+.in
+.PP
+List Python files with absolute paths:
+.PP
+.in +4n
+.B ls.python \-r /src
+.in
+.PP
+Follow symlinks and combine with realpath + ls output:
+.PP
+.in +4n
+.B ls.bash \-Lrl /opt/scripts
+.in
+.PP
+Add a new language type:
+.PP
+.in +4n
+.nf
+ls.types \-E          # edit config, then create symlinks
+ls.ruby .             # use the new type
+.fi
+.in
+.PP
+Show available symlinks:
+.PP
+.in +4n
+.B ls.types \-S list
+.in
+.SH ADDING A NEW TYPE
+.IP 1. 4
+Edit the configuration file:
+.B ls.types \-E
+.IP 2. 4
+Add a line:
+.IR symlink : filetype : pattern : extensions
+.IP 3. 4
+Create symlinks:
+.B ls.types \-S create
+.SH SYMLINKS
+The following symlinks are provided by default:
+.PP
+.TS
+l l l l.
+ls.bash	Bash	bash	sh,bash
+ls.python	Python	python	py,python
+ls.php	PHP	php	php
+ls.js	JavaScript	node	js,mjs,cjs
+ls.perl	Perl	perl	pl,pm
+ls.ruby	Ruby	ruby	rb
+ls.sh	Shell	/bin/sh	sh
+.TE
+.SH SEE ALSO
+.BR find (1),
+.BR file (1),
+.BR realpath (1),
+.BR ls (1),
+.BR bash (1)
+.SH BUGS
+Report bugs at
+.UR https://github.com/Open\-Technology\-Foundation/ls.types/issues
+.UE .
+.SH LICENSE
+GPL-3.0.
+.SH AUTHORS
+Open Technology Foundation
+.UR https://github.com/Open\-Technology\-Foundation
+.UE .

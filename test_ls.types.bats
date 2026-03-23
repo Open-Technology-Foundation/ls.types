@@ -414,4 +414,28 @@ EOF
   [[ "$output" == *"deep.sh"* ]]
 }
 
+@test "edge: -d without argument exits 22" {
+  run "$LS_BASH" -d
+  [[ $status -eq 22 ]]
+  [[ "$output" == *"requires an argument"* ]]
+}
+
+@test "edge: -d with non-numeric argument exits 22" {
+  run "$LS_BASH" -d abc
+  [[ $status -eq 22 ]]
+  [[ "$output" == *"numeric"* ]]
+}
+
+@test "edge: -- stops option parsing" {
+  run "$LS_BASH" -- "$TEST_DIR"
+  [[ $status -eq 0 ]]
+  [[ "$output" == *"script.sh"* ]]
+}
+
+@test "edge: -3abc numeric shorthand rejects non-numeric" {
+  run "$LS_BASH" -3abc "$TEST_DIR"
+  [[ $status -eq 22 ]]
+  [[ "$output" == *"Invalid numeric option"* ]]
+}
+
 #fin
