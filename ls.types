@@ -8,6 +8,7 @@
 # Key vars: SCRIPT_NAME (canonical), TYPE_NAME (symlink), EXT[] (extensions)
 set -euo pipefail
 shopt -s inherit_errexit shift_verbose extglob nullglob
+declare -rx PATH=~/.local/bin:/usr/local/bin:/usr/bin:/bin
 
 declare -r VERSION=1.1.0
 #shellcheck disable=SC2155
@@ -42,6 +43,8 @@ declare -- FILETYPE='' SHBANG='' CONFIG_FILE=''
 declare -Ai EXT=()
 
 # Config file search paths (FHS order, script dir last for dev)
+# Config is parsed (not sourced); first readable path wins (non-cascade by design
+# — the file is colon-delimited data, not Bash assignments).
 declare -a CONFIG_PATHS=(
   /etc/"$SCRIPT_NAME"/types.conf
   /usr/local/share/"$SCRIPT_NAME"/types.conf
@@ -62,8 +65,8 @@ find_config() {
 # edit_config: Interactive config editor with optional symlink creation
 edit_config() {
   local -- config_file
-  echo "Edit $SCRIPT_NAME config file:"
-  echo
+  >&2 echo "Edit $SCRIPT_NAME config file:"
+  >&2 echo
   select config_file in "${CONFIG_PATHS[@]}"; do
     [[ -n "$config_file" ]] || { error "Invalid selection ${config_file@Q}"; continue; }
 
@@ -75,14 +78,14 @@ edit_config() {
     [[ -w "$config_file" ]] || die 1 "Cannot write to ${config_file@Q}"
 
     "${EDITOR:-nano}" "$config_file"
-    echo
+    >&2 echo
     break
   done
 
   [[ -n "$config_file" ]] || die 1 'No config file selected'
   # Symlinks land in SCRIPT_DIR; config_file only defines which symlink names to create.
   read -r -p "Create symlinks in ${SCRIPT_DIR@Q} from ${config_file@Q}? y/n "
-  echo
+  >&2 echo
   if [[ "${REPLY,,}" == y ]]; then
     CONFIG_FILE=$config_file
     manage_symlinks create
@@ -114,7 +117,7 @@ manage_symlinks() {
     [[ -d "$target_dir" ]] || die 1 "Directory not found ${target_dir@Q}"
     for name in "${symlinks[@]}"; do
       [[ -e "$target_dir/$name" ]] && continue
-      ln -s "$SCRIPT_PATH" "$target_dir/$name" && echo "Created '$target_dir/$name'"
+      ln -s "$SCRIPT_PATH" "$target_dir/$name" && >&2 echo "Created '$target_dir/$name'"
     done
   else
     die 1 "Unknown action ${action@Q}. Use 'list' or 'create'"
@@ -264,10 +267,11 @@ HELP
 
   # --- File Discovery ---
   declare -a FILES=() FIND_OPTS=() FILE_OPTS=()
-  ((FOLLOW_SYMLINKS)) && { FIND_OPTS+=(-L); FILE_OPTS+=(-L); }
+  #shellcheck disable=SC2015
+  ((FOLLOW_SYMLINKS)) && { FIND_OPTS+=(-L); FILE_OPTS+=(-L); } ||:
 
   if ((REALPATH)); then
-    readarray -t FILES < <(find "${FIND_OPTS[@]}" -- "${DIRS[@]}" -maxdepth "$MAXDEPTH" -type f -exec realpath -e -- {} \; | sort -u)
+    readarray -t FILES < <(find "${FIND_OPTS[@]}" -- "${DIRS[@]}" -maxdepth "$MAXDEPTH" -type f -exec realpath -e -- {} + | sort -u)
   else
     readarray -t FILES < <(find "${FIND_OPTS[@]}" -- "${DIRS[@]}" -maxdepth "$MAXDEPTH" -type f | sort)
   fi
