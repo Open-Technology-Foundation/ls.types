@@ -80,7 +80,8 @@ edit_config() {
   done
 
   [[ -n "$config_file" ]] || die 1 'No config file selected'
-  read -r -p "Create symlinks in ${config_file@Q}? y/n "
+  # Symlinks land in SCRIPT_DIR; config_file only defines which symlink names to create.
+  read -r -p "Create symlinks in ${SCRIPT_DIR@Q} from ${config_file@Q}? y/n "
   echo
   if [[ "${REPLY,,}" == y ]]; then
     CONFIG_FILE=$config_file
@@ -123,35 +124,39 @@ manage_symlinks() {
 # show_help_generic: Help text when invoked directly (not via symlink)
 show_help_generic() {
   cat <<GENERIC_HELP
+$SCRIPT_NAME $VERSION -- List script files by shebang or extension via symlink dispatch
+
 Usage: $SCRIPT_NAME [OPTIONS]
-       <symlink> [OPTIONS] [DIR...]
+       <symlink>   [OPTIONS] [DIR...]
 
-List script files by shebang or extension using symlink dispatch.
+$SCRIPT_NAME is a dispatcher. Invoke via a symlink (e.g. ls.bash, ls.python)
+to list files of that type. Direct invocation supports management only.
 
-Global Options:
-  -E, --edit        Edit config file
+Options:
+  -E, --edit        Edit config file (honours \$EDITOR, defaults to nano)
   -S, --symlinks [ACTION] [DIR]
                     List or create symlinks (ACTION: list|create)
   -V, --version     Show version
   -h, --help        Show this help
 
-Invoke via symlink for language-specific listing:
+Language-specific symlinks:
   ls.bash           Bash files (.sh, .bash)
   ls.python         Python files (.py)
   ls.php            PHP files (.php)
+  (see full list below)
 
-Current Symlinks:
 $("$0" --symlinks list)
 
 Examples:
-  $SCRIPT_NAME -S list      # Show available symlinks
-  ls.bash -h                # Bash-specific help
-  ls.bash -rl /scripts      # List Bash files with realpath + ls format
+  $SCRIPT_NAME -S list              # Show available symlinks
+  ls.bash -h                    # Bash-specific help
+  ls.bash -rl /scripts          # Bash files with realpath + ls format
+
 GENERIC_HELP
 }
 
 main() {
-  # Load config for this symlink name
+  # Locate config (FHS search); per-symlink lookup happens further down via awk.
   CONFIG_FILE=$(find_config) || die 1 'No config file found'
 
   # Handle global options before TYPE_NAME lookup
@@ -180,7 +185,9 @@ main() {
   # Parse config: symlink:filetype:pattern:extensions
   declare -- pattern extensions
   IFS=':' read -r _ FILETYPE pattern extensions <<<"$config_line"
-  SHBANG="^#!.*${pattern}"  # Regex for shebang matching (e.g., ^#!.*bash)
+  # Pattern is a substring (not a full regex) spliced into the fixed prefix ^#!.*
+  # Examples: bash -> ^#!.*bash ; /bin/sh -> ^#!.*/bin/sh
+  SHBANG="^#!.*${pattern}"
 
   # Build EXT associative array
   declare -a ext_list
@@ -193,9 +200,12 @@ main() {
   # show_help: Help text for symlink invocation (includes type-specific info)
   show_help() {
     cat <<HELP
+$TYPE_NAME $VERSION -- List $FILETYPE script files by shebang or extension
+
 Usage: $TYPE_NAME [OPTIONS] [DIR...]
 
-List $FILETYPE script files by shebang or extension (${!EXT[@]}).
+Files are matched by shebang (${SHBANG}) first, falling back to
+extensions: ${!EXT[*]}. Binary and unreadable files are excluded.
 
 Options:
   -d, --maxdepth N  Max find depth (default: 1)
@@ -203,7 +213,7 @@ Options:
   -l, --ls          Output as ls -lhA listing
   -L, --follow      Follow symbolic links
   --                End of options
-  -E, --edit        Edit $SCRIPT_NAME config file
+  -E, --edit        Edit $SCRIPT_NAME config file (honours \$EDITOR, defaults to nano)
   -S, --symlinks [ACTION] [DIR]
                     List or create symlinks (ACTION: list|create)
   -V, --version     Show version
@@ -212,14 +222,11 @@ Options:
 $("$0" --symlinks list)
 
 Examples:
-  # Current dir, depth 1
-  $TYPE_NAME
-  # Depth 2 in /my/scripts
-  $TYPE_NAME -d 2 /my/scripts
-  # Realpath + ls listing
-  $TYPE_NAME -rl .
-  # Depth 1 in two dirs
-  $TYPE_NAME --ls /my/scripts /my/backup
+  $TYPE_NAME                          # Current dir, depth 1
+  $TYPE_NAME -d 2 /my/scripts         # Depth 2 in named dir
+  $TYPE_NAME -rl .                    # Realpath + ls listing
+  $TYPE_NAME --ls /my/scripts /bak    # Multi-dir listing
+
 HELP
   }
 
@@ -237,9 +244,13 @@ HELP
     -d|--maxdepth)  noarg "$@"; shift
                       [[ $1 =~ ^[0-9]+$ ]] || die 22 "Option '-d' requires a numeric argument: ${1@Q}"
                       MAXDEPTH=$1 ;;
-    -[0123456789]*) [[ ${1:1} =~ ^[0-9]+$ ]] || die 22 "Invalid numeric option ${1@Q}"
+    -[0123456789]*) # Numeric shorthand for --maxdepth: -3 == -d 3
+                      [[ ${1:1} =~ ^[0-9]+$ ]] || die 22 "Invalid numeric option ${1@Q}"
                       MAXDEPTH=${1:1} ;;
-    -[VhrldL]?*) # Expand clustered options: -rl -> -r -l
+    -[VhrldL]?*)    # Expand clustered short options: -Lrl -> -L -rl -> -L -r -l.
+                    # Only V,h,r,l,d,L are cluster-eligible; E/S/-- are excluded because
+                    # they terminate or consume following args. -V/-h still short-circuit
+                    # (exit) once reached, so their cluster position is effectively "last".
                     set -- "${1:0:2}" "-${1:2}" "${@:2}"; continue ;;
     -*)             die 22 "Unknown option ${1@Q}" ;;
     *)              DIRS+=("$1") ;;

@@ -12,10 +12,20 @@ cd ls.types
 sudo make install
 ```
 
-Installs to `/usr/local/bin/` with config in `/etc/ls.types/`.
+`make install` lays down:
+
+| Artefact | Destination |
+|----------|-------------|
+| `ls.types` binary + 7 dispatch symlinks | `/usr/local/bin/` |
+| `types.conf` (preserved if already present) | `/etc/ls.types/` |
+| Manpage `ls.types.1` + per-symlink aliases | `/usr/local/share/man/man1/` |
+| Bash completion | `/etc/bash_completion.d/ls.types` |
+
+Paths are overridable via `PREFIX`, `CONFDIR`, `MANDIR`, `COMPDIR`. `DESTDIR` is honoured for staged/packaged installs.
 
 ```bash
 sudo make uninstall       # Remove installed files
+make check                # Verify ls.types is in PATH
 ```
 
 **Manual setup** (without make):
@@ -77,10 +87,24 @@ ls.php:PHP:php:php
 3. `/usr/share/ls.types/types.conf`
 4. Script directory (development/fallback)
 
+### Default Symlinks
+
+The following symlinks are created by `make install` and listed in the shipped `types.conf`:
+
+| Symlink | Type | Shebang pattern | Extensions |
+|---------|------|-----------------|------------|
+| `ls.bash` | Bash | `bash` | sh, bash |
+| `ls.python` | Python | `python` | py, python |
+| `ls.php` | PHP | `php` | php |
+| `ls.js` | JavaScript | `node` | js, mjs, cjs |
+| `ls.perl` | Perl | `perl` | pl, pm |
+| `ls.ruby` | Ruby | `ruby` | rb |
+| `ls.sh` | Shell | `/bin/sh` | sh |
+
 ### Adding a New Language
 
 ```bash
-ls.bash -E                # Launch interactive config editor
+ls.bash -E                # Launch interactive config editor (honours $EDITOR, defaults to nano)
 ```
 
 Add entry:
@@ -88,7 +112,7 @@ Add entry:
 ls.js:JavaScript:node:js,mjs,cjs
 ```
 
-Create symlinks:
+After saving, the editor prompts to create symlinks for the updated config. Or run manually:
 ```bash
 ls.bash -S create
 ```
@@ -156,8 +180,8 @@ ls.bash -S create /target # In specified directory
 | Code | Meaning |
 |------|---------|
 | 0 | Success |
-| 1 | Config not found, invalid directory, or symlink creation failed |
-| 22 | Invalid option or argument |
+| 1 | Runtime failure (config not found, unknown symlink, invalid directory, symlink creation failed, unwritable config) |
+| 22 | Invalid option or argument (unknown option, missing or non-numeric `-d` value) |
 
 ## Requirements
 
