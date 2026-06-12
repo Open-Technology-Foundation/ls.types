@@ -7,6 +7,12 @@
 #
 # Key vars: SCRIPT_NAME (canonical), TYPE_NAME (symlink), EXT[] (extensions)
 set -euo pipefail
+# Require Bash 5.2+ before enabling version-gated shell options below
+# (inherit_errexit, extglob globs like -d+([0-9]), associative arrays).
+if ((BASH_VERSINFO[0] < 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] < 2))); then
+  printf '%s: requires Bash 5.2 or newer\n' "${0##*/}" >&2
+  exit 1
+fi
 shopt -s inherit_errexit shift_verbose extglob nullglob
 declare -rx PATH=~/.local/bin:/usr/local/bin:/usr/bin:/bin
 
@@ -18,27 +24,9 @@ declare -r SCRIPT_NAME=${SCRIPT_PATH##*/}
 
 declare -r TYPE_NAME=${0##*/}  # Symlink name determines behavior
 
-error() { >&2 echo "$SCRIPT_NAME: $TYPE_NAME: error: $*"; }
-die()   { (($# < 2)) || error "${@:2}"; exit "${1:-0}"; }
-noarg() { (($# > 1)) || die 22 "Option ${1@Q} requires an argument"; }  # validate option has arg
-
-# head1 - Return first line from file (much faster than head -n 1)
-head1() {
-  # synopsis: head1 [FILE]|<stdin
-  local -a MAPFILE
-  if (($#)); then
-    # If a filename is provided, read from the file
-    mapfile -t -n 1 < "$1"
-  else
-    # If no filename is provided, read from stdin
-    mapfile -t -n 1
-  fi
-  ((${#MAPFILE[@]}==0)) || printf '%s' "${MAPFILE[0]}"
-}
-
+# --- Mutable global state ---
 declare -a DIRS=() LS_FILES=()
 declare -i MAXDEPTH=1 REALPATH=0 LS=0 FOLLOW_SYMLINKS=0
-
 declare -- FILETYPE='' SHBANG='' CONFIG_FILE=''
 declare -Ai EXT=()
 
@@ -52,6 +40,25 @@ declare -a CONFIG_PATHS=(
   "$SCRIPT_DIR"/types.conf
 )
 
+_msg()  { >&2 printf '%s: %s: %s\n' "$SCRIPT_NAME" "$TYPE_NAME" "$*"; }
+error() { _msg "✗ error: $*"; }
+die()   { (($# < 2)) || error "${@:2}"; exit "${1:-0}"; }
+noarg() { (($# > 1)) || die 22 "Option ${1@Q} requires an argument"; }  # validate option has arg
+
+# head1 - Return first line from file (much faster than head -n 1)
+head1() {
+  # synopsis: head1 [FILE]|<stdin
+  local -a lines
+  if (($#)); then
+    # If a filename is provided, read from the file
+    mapfile -t -n 1 lines < "$1"
+  else
+    # If no filename is provided, read from stdin
+    mapfile -t -n 1 lines
+  fi
+  ((${#lines[@]}==0)) || printf '%s' "${lines[0]}"
+}
+
 # find_config: Return first readable config path, or fail
 find_config() {
   local -- path
@@ -60,68 +67,6 @@ find_config() {
     [[ -r "$path" ]] && { echo "$path"; return 0; } ||:
   done
   return 1
-}
-
-# edit_config: Interactive config editor with optional symlink creation
-edit_config() {
-  local -- config_file
-  >&2 echo "Edit $SCRIPT_NAME config file:"
-  >&2 echo
-  select config_file in "${CONFIG_PATHS[@]}"; do
-    [[ -n "$config_file" ]] || { error "Invalid selection ${config_file@Q}"; continue; }
-
-    if [[ ! -f "$config_file" ]]; then
-      mkdir -p "${config_file%/*}" 2>/dev/null || die 1 "Cannot create directory for ${config_file@Q}"
-      touch "$config_file" 2>/dev/null || die 1 "Cannot create ${config_file@Q}"
-    fi
-
-    [[ -w "$config_file" ]] || die 1 "Cannot write to ${config_file@Q}"
-
-    "${EDITOR:-nano}" "$config_file"
-    >&2 echo
-    break
-  done
-
-  [[ -n "$config_file" ]] || die 1 'No config file selected'
-  # Symlinks land in SCRIPT_DIR; config_file only defines which symlink names to create.
-  read -r -p "Create symlinks in ${SCRIPT_DIR@Q} from ${config_file@Q}? y/n "
-  >&2 echo
-  if [[ "${REPLY,,}" == y ]]; then
-    CONFIG_FILE=$config_file
-    manage_symlinks create
-  fi
-
-  exit
-}
-
-# manage_symlinks: List or create symlinks defined in config (action: list|create)
-manage_symlinks() {
-  local -- action=${1:-list} target_dir=${2:-$SCRIPT_DIR}
-  local -a symlinks=()
-
-  # Extract symlink names from config (first field before colon)
-  readarray -t symlinks < <(
-    grep -v '^[[:blank:]]*#\|^[[:blank:]]*$' "$CONFIG_FILE" | cut -d: -f1
-  )
-
-  if [[ $action == list ]]; then
-    echo "Symlinks defined in $CONFIG_FILE:"
-    for name in "${symlinks[@]}"; do
-      if [[ -L "$SCRIPT_DIR/$name" ]]; then
-        printf '  %-12s [exists]  -> %s\n' "$name" "$(realpath "$SCRIPT_DIR/$name")"
-      else
-        printf '  %-12s [missing]\n' "$name"
-      fi
-    done
-  elif [[ $action == create ]]; then
-    [[ -d "$target_dir" ]] || die 1 "Directory not found ${target_dir@Q}"
-    for name in "${symlinks[@]}"; do
-      [[ -e "$target_dir/$name" ]] && continue
-      ln -s "$SCRIPT_PATH" "$target_dir/$name" && >&2 echo "Created '$target_dir/$name'"
-    done
-  else
-    die 1 "Unknown action ${action@Q}. Use 'list' or 'create'"
-  fi
 }
 
 # show_help_generic: Help text when invoked directly (not via symlink)
@@ -158,51 +103,9 @@ Examples:
 GENERIC_HELP
 }
 
-main() {
-  # Locate config (FHS search); per-symlink lookup happens further down via awk.
-  CONFIG_FILE=$(find_config) || die 1 'No config file found'
-
-  # Handle global options before TYPE_NAME lookup
-  case ${1:-} in
-    -E|--edit)     edit_config ;;
-    -S|--symlinks) manage_symlinks "${2:-}" "${3:-}"; exit 0 ;;
-  esac
-
-  # Show generic help/version when invoked directly (not via symlink)
-  if [[ "$TYPE_NAME" == "$SCRIPT_NAME" ]]; then
-    case ${1:-} in
-      -V|--version) echo "$SCRIPT_NAME $VERSION"; exit 0 ;;
-      -h|--help)    show_help_generic; exit 0 ;;
-      '')           >&2 show_help_generic; exit 1 ;;
-      *)            die 1 "Unknown symlink ${TYPE_NAME@Q}. Use -S list to see available symlinks" ;;
-    esac
-  fi
-
-  declare -- config_line
-  config_line=$(awk -F: -v name="$TYPE_NAME" '
-    /^[[:blank:]]*#/ || /^[[:blank:]]*$/ { next }
-    $1 == name { print; exit }
-  ' "$CONFIG_FILE") || true
-  [[ -n "$config_line" ]] || die 1 "Unknown symlink ${TYPE_NAME@Q}. Edit ${CONFIG_FILE@Q}"
-
-  # Parse config: symlink:filetype:pattern:extensions
-  declare -- pattern extensions
-  IFS=':' read -r _ FILETYPE pattern extensions <<<"$config_line"
-  # Pattern is a substring (not a full regex) spliced into the fixed prefix ^#!.*
-  # Examples: bash -> ^#!.*bash ; /bin/sh -> ^#!.*/bin/sh
-  SHBANG="^#!.*${pattern}"
-
-  # Build EXT associative array
-  declare -a ext_list
-  IFS=',' read -ra ext_list <<<"$extensions"
-  declare -- e
-  for e in "${ext_list[@]}"; do
-    EXT[$e]=1
-  done
-
-  # show_help: Help text for symlink invocation (includes type-specific info)
-  show_help() {
-    cat <<HELP
+# show_help: Type-specific help for symlink invocation (reads globals set in main)
+show_help() {
+  cat <<HELP
 $TYPE_NAME $VERSION -- List $FILETYPE script files by shebang or extension
 
 Usage: $TYPE_NAME [OPTIONS] [DIR...]
@@ -231,7 +134,122 @@ Examples:
   $TYPE_NAME --ls /my/scripts /bak    # Multi-dir listing
 
 HELP
-  }
+}
+
+# manage_symlinks: List or create symlinks defined in config (action: list|create)
+manage_symlinks() {
+  local -- action=${1:-list} target_dir=${2:-$SCRIPT_DIR} name link
+  local -a symlinks=()
+
+  # Extract symlink names from config (first field before colon)
+  readarray -t symlinks < <(
+    grep -v '^[[:blank:]]*#\|^[[:blank:]]*$' "$CONFIG_FILE" | cut -d: -f1
+  )
+
+  if [[ $action == list ]]; then
+    echo "Symlinks defined in $target_dir:"
+    for name in "${symlinks[@]}"; do
+      if [[ -L "$target_dir/$name" ]]; then
+        printf '  %-12s [exists]  -> %s\n' "$name" "$(realpath "$target_dir/$name")"
+      else
+        printf '  %-12s [missing]\n' "$name"
+      fi
+    done
+  elif [[ $action == create ]]; then
+    [[ -d "$target_dir" ]] || die 1 "Directory not found ${target_dir@Q}"
+    local -i failed=0
+    for name in "${symlinks[@]}"; do
+      # Reject config-supplied names that would escape target_dir (path traversal).
+      [[ $name == */* ]] && { error "Skipping unsafe name ${name@Q}"; continue; }
+      link=$target_dir/$name
+      [[ -e "$link" ]] && continue
+      if ln -s "$SCRIPT_PATH" "$link"; then
+        _msg "Created ${link@Q}"
+      else
+        error "Failed to create ${link@Q}"; failed=1
+      fi
+    done
+    ((failed)) && die 1 'One or more symlinks failed' ||:
+  else
+    die 1 "Unknown action ${action@Q}. Use 'list' or 'create'"
+  fi
+}
+
+# edit_config: Interactive config editor with optional symlink creation
+edit_config() {
+  local -- config_file
+  >&2 echo "Edit $SCRIPT_NAME config file:"
+  >&2 echo
+  select config_file in "${CONFIG_PATHS[@]}"; do
+    [[ -n "$config_file" ]] || { error "Invalid selection ${config_file@Q}"; continue; }
+
+    if [[ ! -f "$config_file" ]]; then
+      mkdir -p "${config_file%/*}" 2>/dev/null || die 1 "Cannot create directory for ${config_file@Q}"
+      touch "$config_file" 2>/dev/null || die 1 "Cannot create ${config_file@Q}"
+    fi
+
+    [[ -w "$config_file" ]] || die 1 "Cannot write to ${config_file@Q}"
+
+    "${EDITOR:-nano}" "$config_file"
+    >&2 echo
+    break
+  done
+
+  [[ -n "$config_file" ]] || die 1 'No config file selected'
+  # Symlinks land in SCRIPT_DIR; config_file only defines which symlink names to create.
+  read -r -p "Create symlinks in ${SCRIPT_DIR@Q} from ${config_file@Q}? y/n "
+  >&2 echo
+  if [[ "${REPLY,,}" == y ]]; then
+    CONFIG_FILE=$config_file
+    manage_symlinks create
+  fi
+
+  exit
+}
+
+main() {
+  # Locate config (FHS search); per-symlink lookup happens further down via awk.
+  CONFIG_FILE=$(find_config) || die 1 'No config file found'
+
+  # Handle global options before TYPE_NAME lookup
+  case ${1:-} in
+    -E|--edit)     edit_config ;;
+    -S|--symlinks) manage_symlinks "${2:-}" "${3:-}"; exit 0 ;;
+    *)             ;;  # all other args handled after TYPE_NAME dispatch
+  esac
+
+  # Show generic help/version when invoked directly (not via symlink)
+  if [[ "$TYPE_NAME" == "$SCRIPT_NAME" ]]; then
+    case ${1:-} in
+      -V|--version) echo "$SCRIPT_NAME $VERSION"; exit 0 ;;
+      -h|--help)    show_help_generic; exit 0 ;;
+      '')           >&2 show_help_generic; exit 1 ;;
+      *)            die 1 "Unknown symlink ${TYPE_NAME@Q}. Use -S list to see available symlinks" ;;
+    esac
+  fi
+
+  local -- config_line
+  config_line=$(awk -F: -v name="$TYPE_NAME" '
+    /^[[:blank:]]*#/ || /^[[:blank:]]*$/ { next }
+    $1 == name { print; exit }
+  ' "$CONFIG_FILE") ||:
+  [[ -n "$config_line" ]] || die 1 "Unknown symlink ${TYPE_NAME@Q}. Edit ${CONFIG_FILE@Q}"
+
+  # Parse config: symlink:filetype:pattern:extensions
+  local -- pattern extensions
+  # Strip a trailing CR so CRLF-saved configs don't poison the last field.
+  IFS=':' read -r _ FILETYPE pattern extensions <<<"${config_line%$'\r'}"
+  # Pattern is a substring (not a full regex) spliced into the fixed prefix ^#!.*
+  # Examples: bash -> ^#!.*bash ; /bin/sh -> ^#!.*/bin/sh
+  SHBANG="^#!.*${pattern}"
+
+  # EXT is -Ai: keys are extensions, values are 1 (presence flags for -v tests).
+  local -a ext_list
+  IFS=',' read -ra ext_list <<<"$extensions"
+  local -- e
+  for e in "${ext_list[@]}"; do
+    EXT[$e]=1
+  done
 
   # --- Argument Parsing ---
   while (($#)); do case $1 in
@@ -250,34 +268,41 @@ HELP
     -[0123456789]*) # Numeric shorthand for --maxdepth: -3 == -d 3
                       [[ ${1:1} =~ ^[0-9]+$ ]] || die 22 "Invalid numeric option ${1@Q}"
                       MAXDEPTH=${1:1} ;;
-    -[VhrldL]?*)    # Expand clustered short options: -Lrl -> -L -rl -> -L -r -l.
-                    # Only V,h,r,l,d,L are cluster-eligible; E/S/-- are excluded because
-                    # they terminate or consume following args. -V/-h still short-circuit
+    -d+([0-9]))     MAXDEPTH=${1:2} ;;  # Glued maxdepth: -d2 == -d 2
+    -[VhrlL]?*)     # Expand clustered short options: -Lrl -> -L -rl -> -L -r -l.
+                    # Only V,h,r,l,L are cluster-eligible; d/E/S/-- are excluded because
+                    # they consume or carry a following argument (d takes a glued/separate
+                    # numeric, E/S/-- terminate parsing). -V/-h still short-circuit
                     # (exit) once reached, so their cluster position is effectively "last".
                     set -- "${1:0:2}" "-${1:2}" "${@:2}"; continue ;;
     -*)             die 22 "Unknown option ${1@Q}" ;;
     *)              DIRS+=("$1") ;;
   esac; shift; done
+  readonly -- MAXDEPTH REALPATH LS FOLLOW_SYMLINKS  # frozen post-parse (DIRS still grows)
 
   ((${#DIRS[@]})) || DIRS=(.)
-  declare -- dir
+  local -- dir
   for dir in "${DIRS[@]}"; do
     [[ -d "$dir" ]] || die 1 "Not a directory ${dir@Q}"
   done
 
   # --- File Discovery ---
-  declare -a FILES=() FIND_OPTS=() FILE_OPTS=()
+  local -a FILES=() FIND_OPTS=() FILE_OPTS=()
   #shellcheck disable=SC2015
   ((FOLLOW_SYMLINKS)) && { FIND_OPTS+=(-L); FILE_OPTS+=(-L); } ||:
 
   if ((REALPATH)); then
-    readarray -t FILES < <(find "${FIND_OPTS[@]}" -- "${DIRS[@]}" -maxdepth "$MAXDEPTH" -type f -exec realpath -e -- {} + | sort -u)
+    readarray -d '' -t FILES < <(
+      find "${FIND_OPTS[@]}" -- "${DIRS[@]}" -maxdepth "$MAXDEPTH" \
+           -type f -exec realpath -ez -- {} + | sort -z -u)
   else
-    readarray -t FILES < <(find "${FIND_OPTS[@]}" -- "${DIRS[@]}" -maxdepth "$MAXDEPTH" -type f | sort)
+    readarray -d '' -t FILES < <(
+      find "${FIND_OPTS[@]}" -- "${DIRS[@]}" -maxdepth "$MAXDEPTH" \
+           -type f -print0 | sort -z)
   fi
 
   # --- Filter and Output ---
-  declare -- file
+  local -- file base
   for file in "${FILES[@]}"; do
     [[ -n "$file" ]] || continue
     [[ -r "$file" ]] || continue
@@ -285,9 +310,10 @@ HELP
     #shellcheck disable=SC2015
     [[ $(file "${FILE_OPTS[@]}" -b --mime-encoding "$file") == binary ]] && continue ||:
 
-    # Match by shebang first, fall back to extension
+    # Match by shebang first, fall back to extension (on basename, not full path)
     [[ "$(head1 "$file")" =~ $SHBANG ]] || {
-      [[ -v EXT[${file##*.}] ]] || continue
+      base=${file##*/}
+      [[ $base == *.* && -v EXT[${base##*.}] ]] || continue
     }
 
     if ((LS)); then

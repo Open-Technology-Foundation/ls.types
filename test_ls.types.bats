@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
 LS_BASH="$SCRIPT_DIR/ls.bash"
 LS_PYTHON="$SCRIPT_DIR/ls.python"
 LS_PHP="$SCRIPT_DIR/ls.php"
+LS_SH="$SCRIPT_DIR/ls.sh"
 LS_TYPES="$SCRIPT_DIR/ls.types"
 
 setup() {
@@ -436,6 +437,129 @@ EOF
   run "$LS_BASH" -3abc "$TEST_DIR"
   [[ $status -eq 22 ]]
   [[ "$output" == *"Invalid numeric option"* ]]
+}
+
+# =============================================================================
+# Glued / clustered -d maxdepth (regression for A1, #1/#7)
+# =============================================================================
+
+@test "maxdepth: -d2 glued finds files in subdirs" {
+  run "$LS_BASH" -d2 "$TEST_DIR"
+  [[ $status -eq 0 ]]
+  [[ "$output" == *"sub.sh"* ]]
+}
+
+@test "maxdepth: -d3 glued finds deeply nested files" {
+  run "$LS_BASH" -d3 "$TEST_DIR"
+  [[ $status -eq 0 ]]
+  [[ "$output" == *"deep.sh"* ]]
+}
+
+@test "maxdepth: -d12 glued multi-digit accepted" {
+  run "$LS_BASH" -d12 "$TEST_DIR"
+  [[ $status -eq 0 ]]
+  [[ "$output" == *"deep.sh"* ]]
+}
+
+@test "maxdepth: -rd2 glued within cluster works" {
+  run "$LS_BASH" -rd2 "$TEST_DIR"
+  [[ $status -eq 0 ]]
+  [[ "$output" == *"$TEST_DIR"* ]]
+  [[ "$output" == *"sub.sh"* ]]
+}
+
+@test "maxdepth: -d2 glued matches -d 2 output exactly" {
+  run "$LS_BASH" -d2 "$TEST_DIR"
+  local glued="$output"
+  run "$LS_BASH" -d 2 "$TEST_DIR"
+  [[ "$output" == "$glued" ]]
+}
+
+# =============================================================================
+# -S list DIR honours target_dir (regression for A2, #2)
+# =============================================================================
+
+@test "symlinks: -S list DIR reflects that dir, not SCRIPT_DIR" {
+  local d
+  d=$(mktemp -d)
+  ln -s "$LS_TYPES" "$d/ls.bash"   # only ls.bash present in this dir
+  run "$LS_BASH" -S list "$d"
+  [[ $status -eq 0 ]]
+  [[ "$output" == *"Symlinks defined in $d"* ]]
+  [[ "$output" == *"[exists]"* ]]
+  # SCRIPT_DIR has every symlink; a [missing] proves $d was read, not SCRIPT_DIR
+  [[ "$output" == *"[missing]"* ]]
+  rm -rf "$d"
+}
+
+# =============================================================================
+# ls.sh dispatch and sh/bash boundary (#5)
+# =============================================================================
+
+@test "detection: ls.sh finds /bin/sh shebang files" {
+  local d
+  d=$(mktemp -d)
+  printf '#!/bin/sh\necho posix\n' > "$d/posix.sh"
+  run "$LS_SH" "$d"
+  [[ $status -eq 0 ]]
+  [[ "$output" == *"posix.sh"* ]]
+  rm -rf "$d"
+}
+
+@test "detection: ls.sh lists .sh bash files via extension boundary" {
+  # script.sh carries a bash shebang; ls.sh's '/bin/sh' pattern does NOT match it,
+  # but the 'sh' extension does -> it is listed (documented boundary behaviour).
+  run "$LS_SH" "$TEST_DIR"
+  [[ $status -eq 0 ]]
+  [[ "$output" == *"script.sh"* ]]
+}
+
+# =============================================================================
+# Unknown symlink name and direct invocation (#25, #26)
+# =============================================================================
+
+@test "error: unknown symlink name exits 1" {
+  local d
+  d=$(mktemp -d)
+  ln -s "$LS_TYPES" "$d/ls.nonexistent"
+  run "$d/ls.nonexistent" "$TEST_DIR"
+  [[ $status -eq 1 ]]
+  [[ "$output" == *"Unknown symlink"* ]]
+  rm -rf "$d"
+}
+
+@test "direct: ./ls.types -V shows version" {
+  run "$LS_TYPES" -V
+  [[ $status -eq 0 ]]
+  [[ "$output" == *"1.1.0"* ]]
+}
+
+@test "direct: ./ls.types -h shows generic help" {
+  run "$LS_TYPES" -h
+  [[ $status -eq 0 ]]
+  [[ "$output" == *"Usage:"* ]]
+}
+
+@test "direct: ./ls.types with no args exits 1 with help" {
+  run "$LS_TYPES"
+  [[ $status -eq 1 ]]
+  [[ "$output" == *"Usage:"* ]]
+}
+
+# =============================================================================
+# Newline-in-filename safety (regression for B2, #11)
+# =============================================================================
+
+@test "edge: newline in filename is handled safely" {
+  local d
+  d=$(mktemp -d)
+  local fn=$'line1\nline2.sh'
+  printf '#!/bin/bash\necho x\n' > "$d/$fn" 2>/dev/null \
+    || { rm -rf "$d"; skip "filesystem rejects newline in filename"; }
+  run "$LS_BASH" "$d"
+  [[ $status -eq 0 ]]
+  [[ "$output" == *"line2.sh"* ]]
+  rm -rf "$d"
 }
 
 #fin
