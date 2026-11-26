@@ -1,6 +1,6 @@
 .\" ls.types.1 - manpage for ls.types
-.\" Generated from ls.types v2.0.0
-.TH LS.TYPES 1 "2026-11-27" "ls.types 2.0.0" "User Commands"
+.\" Generated from ls.types v2.1.0
+.TH LS.TYPES 1 "2026-11-27" "ls.types 2.1.0" "User Commands"
 .SH NAME
 ls.types \- list script files by shebang or extension using symlink dispatch
 .SH SYNOPSIS
@@ -65,8 +65,8 @@ Duplicates from multiple directory arguments are removed.
 .TP
 .BR \-l ", " \-\-ls
 Format output as an
-.B ls \-lhA \-\-color=always \-\-time\-style=long\-iso
-listing.
+.B ls \-lhA \-\-color=auto \-\-time\-style=long\-iso
+listing (colour only when writing to a terminal).
 .TP
 .BR \-L ", " \-\-follow
 Follow symbolic links.
@@ -153,10 +153,13 @@ ls.sh:Shell:/bin/sh:sh
 .fi
 .in
 .SS Search Order
-The first readable configuration file is used (FHS-compliant):
+The first readable configuration file is used; files are not merged.
+.B \-h
+prints this list and the file in use.
 .PP
 .in +4n
 .nf
+${XDG_CONFIG_HOME:\-~/.config}/ls.types/types.conf
 /etc/ls.types/types.conf
 /usr/local/share/ls.types/types.conf
 /usr/share/ls.types/types.conf
@@ -184,12 +187,32 @@ Files matching either criterion are included in the output.
 Success.
 .TP
 .B 1
-Configuration not found, invalid directory, unknown symlink, or symlink creation failed.
+Symlink creation failed, or a configuration file could not be created.
+.TP
+.B 3
+Not found: no configuration file, a
+.I DIR
+that is not a directory, or a missing
+.B \-S create
+target directory.
+.TP
+.B 13
+Configuration file not writable
+.RB ( \-E ).
+.TP
+.B 18
+.BR file (1)
+is not installed.
+.TP
+.B 19
+The invoking symlink name is not defined in the configuration in use.
 .TP
 .B 22
 Invalid option or argument (unknown option, missing or non-numeric
 .B \-d
-value).
+value, unknown
+.B \-S
+action, or no or an unsupported option on direct invocation).
 .SH ENVIRONMENT
 .TP
 .B EDITOR
@@ -197,7 +220,17 @@ Editor used by
 .BR \-E / \-\-edit .
 Defaults to
 .BR nano .
+.TP
+.B XDG_CONFIG_HOME
+Base of the per-user configuration path, searched first.
+Defaults to
+.IR ~/.config .
 .SH FILES
+.TP
+.I ${XDG_CONFIG_HOME:\-~/.config}/ls.types/types.conf
+Per-user type definitions; overrides every system file.
+.B \-E
+seeds a new one from the configuration in use.
 .TP
 .I /etc/ls.types/types.conf
 System-wide type definitions (installed by

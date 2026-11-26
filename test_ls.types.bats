@@ -16,6 +16,9 @@ setup() {
   TEST_DEEP="$TEST_DIR/subdir/deep"
   TEST_EMPTY="$TEST_DIR/empty"
   TEST_SPACES="$TEST_DIR/dir with spaces"
+  # Hermetic user config: the XDG path is searched first, so a real
+  # ~/.config/ls.types/types.conf must never leak into a test run.
+  export XDG_CONFIG_HOME="$TEST_DIR/xdg"
 
   mkdir -p "$TEST_SUBDIR" "$TEST_DEEP" "$TEST_EMPTY" "$TEST_SPACES"
 
@@ -124,13 +127,13 @@ teardown() {
 @test "version: -V shows version" {
   run "$LS_BASH" -V
   [[ $status -eq 0 ]]
-  [[ "$output" == "ls.bash 2.0.0" ]]
+  [[ "$output" == "ls.bash 2.1.0" ]]
 }
 
 @test "version: --version shows version" {
   run "$LS_BASH" --version
   [[ $status -eq 0 ]]
-  [[ "$output" == *"2.0.0"* ]]
+  [[ "$output" == *"2.1.0"* ]]
 }
 
 @test "error: unknown option exits 22" {
@@ -268,7 +271,7 @@ teardown() {
 
 @test "directory: errors on invalid directory" {
   run "$LS_BASH" "/nonexistent/path"
-  [[ $status -eq 1 ]]
+  [[ $status -eq 3 ]]
   [[ "$output" == *"error"* ]]
   [[ "$output" == *"Not a directory"* ]]
 }
@@ -301,14 +304,14 @@ teardown() {
 
 @test "symlinks: -S invalid action errors" {
   run "$LS_BASH" -S invalidaction
-  [[ $status -eq 1 ]]
+  [[ $status -eq 22 ]]
   [[ "$output" == *"error"* ]]
   [[ "$output" == *"Unknown action"* ]]
 }
 
 @test "symlinks: -S create invalid dir errors" {
   run "$LS_BASH" -S create "/nonexistent/path"
-  [[ $status -eq 1 ]]
+  [[ $status -eq 3 ]]
   [[ "$output" == *"error"* ]]
   [[ "$output" == *"Directory not found"* ]]
 }
@@ -556,12 +559,12 @@ _dash_fixture() {
 # Unknown symlink name and direct invocation (#25, #26)
 # =============================================================================
 
-@test "error: unknown symlink name exits 1" {
+@test "error: unknown symlink name exits 19" {
   local d
   d=$(mktemp -d)
   ln -s "$LS_TYPES" "$d/ls.nonexistent"
   run "$d/ls.nonexistent" "$TEST_DIR"
-  [[ $status -eq 1 ]]
+  [[ $status -eq 19 ]]
   [[ "$output" == *"Unknown symlink"* ]]
   rm -rf "$d"
 }
@@ -569,7 +572,7 @@ _dash_fixture() {
 @test "direct: ./ls.types -V shows version" {
   run "$LS_TYPES" -V
   [[ $status -eq 0 ]]
-  [[ "$output" == *"2.0.0"* ]]
+  [[ "$output" == *"2.1.0"* ]]
 }
 
 @test "direct: ./ls.types -h shows generic help" {
@@ -578,10 +581,61 @@ _dash_fixture() {
   [[ "$output" == *"Usage:"* ]]
 }
 
-@test "direct: ./ls.types with no args exits 1 with help" {
+@test "direct: ./ls.types with no args exits 22 with help" {
   run "$LS_TYPES"
-  [[ $status -eq 1 ]]
+  [[ $status -eq 22 ]]
   [[ "$output" == *"Usage:"* ]]
+}
+
+@test "direct: ./ls.types with unsupported option exits 22 and names it" {
+  run "$LS_TYPES" -x
+  [[ $status -eq 22 ]]
+  [[ "$output" == *"Unsupported option '-x'"* ]]
+}
+
+# =============================================================================
+# Config search: XDG user config first; paths shown in help; -E seeding
+# =============================================================================
+
+@test "config: XDG user config overrides system config" {
+  mkdir -p "$XDG_CONFIG_HOME/ls.types"
+  printf 'ls.bash:Bash:nomatchzz:zzz\n' > "$XDG_CONFIG_HOME/ls.types/types.conf"
+  printf 'text\n' > "$TEST_DIR/only.zzz"
+  run "$LS_BASH" "$TEST_DIR"
+  [[ $status -eq 0 ]]
+  [[ "$output" == "$TEST_DIR/only.zzz" ]]
+}
+
+@test "help: -h lists config search paths and the one in use" {
+  run "$LS_BASH" -h
+  [[ $status -eq 0 ]]
+  [[ "$output" == *"Config (first readable file wins; in use: "* ]]
+  [[ "$output" == *"$XDG_CONFIG_HOME/ls.types/types.conf"* ]]
+  [[ "$output" == *"/etc/ls.types/types.conf"* ]]
+}
+
+@test "edit: -E seeds a new XDG config from the active config" {
+  run bash -c 'printf "1\nn\n" | EDITOR=true "$1" -E' _ "$LS_BASH"
+  [[ $status -eq 0 ]]
+  [[ -f "$XDG_CONFIG_HOME/ls.types/types.conf" ]]
+  grep -q '^ls.bash:' "$XDG_CONFIG_HOME/ls.types/types.conf"
+}
+
+@test "edit: -E on an unwritable config exits 13" {
+  ((EUID)) || skip "root can write read-only files"
+  mkdir -p "$XDG_CONFIG_HOME/ls.types"
+  printf 'ls.bash:Bash:bash:sh,bash\n' > "$XDG_CONFIG_HOME/ls.types/types.conf"
+  chmod 444 "$XDG_CONFIG_HOME/ls.types/types.conf"
+  run bash -c 'printf "1\n" | EDITOR=true "$1" -E' _ "$LS_BASH"
+  [[ $status -eq 13 ]]
+  [[ "$output" == *"Cannot write to"* ]]
+}
+
+@test "output: -l into a pipe carries no ANSI colour escapes" {
+  run "$LS_BASH" -l "$TEST_DIR"
+  [[ $status -eq 0 ]]
+  [[ "$output" == *"script.sh"* ]]
+  [[ "$output" != *$'\e['* ]]
 }
 
 # =============================================================================
