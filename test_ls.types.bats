@@ -124,13 +124,13 @@ teardown() {
 @test "version: -V shows version" {
   run "$LS_BASH" -V
   [[ $status -eq 0 ]]
-  [[ "$output" == "ls.bash 1.1.0" ]]
+  [[ "$output" == "ls.bash 2.0.0" ]]
 }
 
 @test "version: --version shows version" {
   run "$LS_BASH" --version
   [[ $status -eq 0 ]]
-  [[ "$output" == *"1.1.0"* ]]
+  [[ "$output" == *"2.0.0"* ]]
 }
 
 @test "error: unknown option exits 22" {
@@ -440,39 +440,77 @@ EOF
 }
 
 # =============================================================================
-# Glued / clustered -d maxdepth (regression for A1, #1/#7)
+# Dash-leading / expression-like DIR operands (find takes no '--')
+# Each test runs inside its own dir under TEST_DIR: a regression would make
+# find run '-delete' on the current directory, so it must be disposable.
 # =============================================================================
 
-@test "maxdepth: -d2 glued finds files in subdirs" {
+# Fixture: CWD holds a dir named $1 containing a bash script, plus a sentinel.
+_dash_fixture() {
+  DASH_CWD="$TEST_DIR/dashcwd"
+  mkdir -p -- "$DASH_CWD/$1"
+  printf '#!/bin/bash\necho x\n' > "$DASH_CWD/$1/dash.sh"
+  touch "$DASH_CWD/sentinel"
+  cd "$DASH_CWD"
+}
+
+@test "edge: dir named -delete is a start point, not a find action" {
+  _dash_fixture -delete
+  run "$LS_BASH" -- -delete
+  [[ $status -eq 0 ]]
+  [[ "$output" == "./-delete/dash.sh" ]]
+  [[ -e "$DASH_CWD/sentinel" ]]
+  [[ -e "$DASH_CWD/-delete/dash.sh" ]]
+}
+
+@test "edge: dir named -delete with -r is a start point, not a find action" {
+  _dash_fixture -delete
+  run "$LS_BASH" -r -- -delete
+  [[ $status -eq 0 ]]
+  [[ "$output" == "$(realpath -- "$DASH_CWD")/-delete/dash.sh" ]]
+  [[ -e "$DASH_CWD/sentinel" ]]
+  [[ -e "$DASH_CWD/-delete/dash.sh" ]]
+}
+
+@test "edge: dir named ! is a start point, not find negation" {
+  _dash_fixture '!'
+  run "$LS_BASH" '!'
+  [[ $status -eq 0 ]]
+  [[ "$output" == "./!/dash.sh" ]]
+}
+
+@test "directory: relative dir output is ./-prefixed; . is not doubled" {
+  cd "$TEST_DIR"
+  run "$LS_BASH" subdir
+  [[ $status -eq 0 ]]
+  [[ "$output" == "./subdir/sub.sh" ]]
+  run "$LS_BASH" .
+  [[ "$output" == *"./script.sh"* && "$output" != *"././"* ]]
+  run "$LS_BASH" ./subdir
+  [[ "$output" == "./subdir/sub.sh" ]]
+}
+
+# =============================================================================
+# -d takes its argument as the next word only (BCS0801: no attached arguments)
+# =============================================================================
+
+@test "maxdepth: -d2 glued form is rejected with exit 22" {
   run "$LS_BASH" -d2 "$TEST_DIR"
-  [[ $status -eq 0 ]]
-  [[ "$output" == *"sub.sh"* ]]
+  [[ $status -eq 22 ]]
+  [[ "$output" == *"Unknown option"* ]]
 }
 
-@test "maxdepth: -d3 glued finds deeply nested files" {
-  run "$LS_BASH" -d3 "$TEST_DIR"
-  [[ $status -eq 0 ]]
-  [[ "$output" == *"deep.sh"* ]]
-}
-
-@test "maxdepth: -d12 glued multi-digit accepted" {
-  run "$LS_BASH" -d12 "$TEST_DIR"
-  [[ $status -eq 0 ]]
-  [[ "$output" == *"deep.sh"* ]]
-}
-
-@test "maxdepth: -rd2 glued within cluster works" {
+@test "maxdepth: -rd2 glued within cluster is rejected with exit 22" {
   run "$LS_BASH" -rd2 "$TEST_DIR"
+  [[ $status -eq 22 ]]
+  [[ "$output" == *"Unknown option"* ]]
+}
+
+@test "maxdepth: -rd 2 cluster ending in -d takes the next word" {
+  run "$LS_BASH" -rd 2 "$TEST_DIR"
   [[ $status -eq 0 ]]
   [[ "$output" == *"$TEST_DIR"* ]]
   [[ "$output" == *"sub.sh"* ]]
-}
-
-@test "maxdepth: -d2 glued matches -d 2 output exactly" {
-  run "$LS_BASH" -d2 "$TEST_DIR"
-  local glued="$output"
-  run "$LS_BASH" -d 2 "$TEST_DIR"
-  [[ "$output" == "$glued" ]]
 }
 
 # =============================================================================
@@ -531,7 +569,7 @@ EOF
 @test "direct: ./ls.types -V shows version" {
   run "$LS_TYPES" -V
   [[ $status -eq 0 ]]
-  [[ "$output" == *"1.1.0"* ]]
+  [[ "$output" == *"2.0.0"* ]]
 }
 
 @test "direct: ./ls.types -h shows generic help" {

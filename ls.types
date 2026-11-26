@@ -8,7 +8,7 @@
 # Key vars: SCRIPT_NAME (canonical), TYPE_NAME (symlink), EXT[] (extensions)
 set -euo pipefail
 # Require Bash 5.2+ before enabling version-gated shell options below
-# (inherit_errexit, extglob globs like -d+([0-9]), associative arrays).
+# (inherit_errexit, associative arrays).
 if ((BASH_VERSINFO[0] < 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] < 2))); then
   printf '%s: requires Bash 5.2 or newer\n' "${0##*/}" >&2
   exit 1
@@ -16,8 +16,8 @@ fi
 shopt -s inherit_errexit shift_verbose extglob nullglob
 declare -rx PATH=~/.local/bin:/usr/local/bin:/usr/bin:/bin
 
-declare -r VERSION=1.1.0
-#shellcheck disable=SC2155
+declare -r VERSION=2.0.0
+#shellcheck disable=SC2155  # accepted: declare -r masks realpath's status; realpath of the running $0 does not fail
 declare -r SCRIPT_PATH=$(realpath -- "$0")
 declare -r SCRIPT_DIR=${SCRIPT_PATH%/*}
 declare -r SCRIPT_NAME=${SCRIPT_PATH##*/}
@@ -63,7 +63,7 @@ head1() {
 find_config() {
   local -- path
   for path in "${CONFIG_PATHS[@]}"; do
-    #shellcheck disable=SC2015
+    #shellcheck disable=SC2015  # the braced group returns; ||: only absorbs a false -r test
     [[ -r "$path" ]] && { echo "$path"; return 0; } ||:
   done
   return 1
@@ -143,14 +143,14 @@ manage_symlinks() {
 
   # Extract symlink names from config (first field before colon)
   readarray -t symlinks < <(
-    grep -v '^[[:blank:]]*#\|^[[:blank:]]*$' "$CONFIG_FILE" | cut -d: -f1
+    grep -v -- '^[[:blank:]]*#\|^[[:blank:]]*$' "$CONFIG_FILE" | cut -d: -f1
   )
 
   if [[ $action == list ]]; then
     echo "Symlinks defined in $target_dir:"
     for name in "${symlinks[@]}"; do
       if [[ -L "$target_dir/$name" ]]; then
-        printf '  %-12s [exists]  -> %s\n' "$name" "$(realpath "$target_dir/$name")"
+        printf '  %-12s [exists]  -> %s\n' "$name" "$(realpath -- "$target_dir/$name")"
       else
         printf '  %-12s [missing]\n' "$name"
       fi
@@ -163,7 +163,7 @@ manage_symlinks() {
       [[ $name == */* ]] && { error "Skipping unsafe name ${name@Q}"; continue; }
       link=$target_dir/$name
       [[ -e "$link" ]] && continue
-      if ln -s "$SCRIPT_PATH" "$link"; then
+      if ln -s -- "$SCRIPT_PATH" "$link"; then
         _msg "Created ${link@Q}"
       else
         error "Failed to create ${link@Q}"; failed=1
@@ -184,8 +184,8 @@ edit_config() {
     [[ -n "$config_file" ]] || { error "Invalid selection ${config_file@Q}"; continue; }
 
     if [[ ! -f "$config_file" ]]; then
-      mkdir -p "${config_file%/*}" 2>/dev/null || die 1 "Cannot create directory for ${config_file@Q}"
-      touch "$config_file" 2>/dev/null || die 1 "Cannot create ${config_file@Q}"
+      mkdir -p -- "${config_file%/*}" 2>/dev/null || die 1 "Cannot create directory for ${config_file@Q}"
+      touch -- "$config_file" 2>/dev/null || die 1 "Cannot create ${config_file@Q}"
     fi
 
     [[ -w "$config_file" ]] || die 1 "Cannot write to ${config_file@Q}"
@@ -229,7 +229,7 @@ main() {
   fi
 
   local -- config_line
-  config_line=$(awk -F: -v name="$TYPE_NAME" '
+  config_line=$(awk -F: -v name="$TYPE_NAME" -- '
     /^[[:blank:]]*#/ || /^[[:blank:]]*$/ { next }
     $1 == name { print; exit }
   ' "$CONFIG_FILE") ||:
@@ -268,12 +268,11 @@ main() {
     -[0123456789]*) # Numeric shorthand for --maxdepth: -3 == -d 3
                       [[ ${1:1} =~ ^[0-9]+$ ]] || die 22 "Invalid numeric option ${1@Q}"
                       MAXDEPTH=${1:1} ;;
-    -d+([0-9]))     MAXDEPTH=${1:2} ;;  # Glued maxdepth: -d2 == -d 2
     -[VhrlL]?*)     # Expand clustered short options: -Lrl -> -L -rl -> -L -r -l.
-                    # Only V,h,r,l,L are cluster-eligible; d/E/S/-- are excluded because
-                    # they consume or carry a following argument (d takes a glued/separate
-                    # numeric, E/S/-- terminate parsing). -V/-h still short-circuit
-                    # (exit) once reached, so their cluster position is effectively "last".
+                    # Only V,h,r,l,L may lead a cluster. d may end one (-rd 2): its
+                    # argument is always the next word, never glued (-d2 is rejected).
+                    # E/S/-- are excluded because they terminate parsing. -V/-h still
+                    # short-circuit (exit) once reached, so their position is effectively "last".
                     set -- "${1:0:2}" "-${1:2}" "${@:2}"; continue ;;
     -*)             die 22 "Unknown option ${1@Q}" ;;
     *)              DIRS+=("$1") ;;
@@ -281,23 +280,27 @@ main() {
   readonly -- MAXDEPTH REALPATH LS FOLLOW_SYMLINKS  # frozen post-parse (DIRS still grows)
 
   ((${#DIRS[@]})) || DIRS=(.)
-  local -- dir
-  for dir in "${DIRS[@]}"; do
-    [[ -d "$dir" ]] || die 1 "Not a directory ${dir@Q}"
+  # find takes no '--': a start point beginning with '-' (or one named '!' or '(')
+  # is parsed as part of its expression -- a dir named '-delete' would delete the
+  # CWD. Whitelist: '/'- and '.'-leading paths are safe; prefix the rest with './'.
+  local -i i
+  for i in "${!DIRS[@]}"; do
+    [[ -d ${DIRS[i]} ]] || die 1 "Not a directory ${DIRS[i]@Q}"
+    [[ ${DIRS[i]} == [/.]* ]] || DIRS[i]=./${DIRS[i]}
   done
 
   # --- File Discovery ---
   local -a FILES=() FIND_OPTS=() FILE_OPTS=()
-  #shellcheck disable=SC2015
+  #shellcheck disable=SC2015  # array appends cannot fail; ||: only absorbs a false ((FOLLOW_SYMLINKS))
   ((FOLLOW_SYMLINKS)) && { FIND_OPTS+=(-L); FILE_OPTS+=(-L); } ||:
 
   if ((REALPATH)); then
     readarray -d '' -t FILES < <(
-      find "${FIND_OPTS[@]}" -- "${DIRS[@]}" -maxdepth "$MAXDEPTH" \
+      find "${FIND_OPTS[@]}" "${DIRS[@]}" -maxdepth "$MAXDEPTH" \
            -type f -exec realpath -ez -- {} + | sort -z -u)
   else
     readarray -d '' -t FILES < <(
-      find "${FIND_OPTS[@]}" -- "${DIRS[@]}" -maxdepth "$MAXDEPTH" \
+      find "${FIND_OPTS[@]}" "${DIRS[@]}" -maxdepth "$MAXDEPTH" \
            -type f -print0 | sort -z)
   fi
 
@@ -307,8 +310,8 @@ main() {
     [[ -n "$file" ]] || continue
     [[ -r "$file" ]] || continue
     # Skip binary files (using file(1) MIME encoding detection)
-    #shellcheck disable=SC2015
-    [[ $(file "${FILE_OPTS[@]}" -b --mime-encoding "$file") == binary ]] && continue ||:
+    #shellcheck disable=SC2015  # continue cannot fail; ||: only absorbs a non-binary result
+    [[ $(file "${FILE_OPTS[@]}" -b --mime-encoding -- "$file") == binary ]] && continue ||:
 
     # Match by shebang first, fall back to extension (on basename, not full path)
     [[ "$(head1 "$file")" =~ $SHBANG ]] || {
@@ -324,7 +327,7 @@ main() {
   done
 
   if ((LS && ${#LS_FILES[@]})); then
-    /usr/bin/ls -lhA --color=always --time-style=long-iso "${LS_FILES[@]}"
+    /usr/bin/ls -lhA --color=always --time-style=long-iso -- "${LS_FILES[@]}"
   fi
 }
 

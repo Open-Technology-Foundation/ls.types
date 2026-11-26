@@ -1,6 +1,6 @@
 .\" ls.types.1 - manpage for ls.types
-.\" Generated from ls.types v1.1.0
-.TH LS.TYPES 1 "2026-03-23" "ls.types 1.1.0" "User Commands"
+.\" Generated from ls.types v2.0.0
+.TH LS.TYPES 1 "2026-11-27" "ls.types 2.0.0" "User Commands"
 .SH NAME
 ls.types \- list script files by shebang or extension using symlink dispatch
 .SH SYNOPSIS
@@ -51,12 +51,12 @@ A numeric shorthand
 is also accepted (e.g.,
 .B \-3
 for depth 3).
-The value may also be glued to the option,
-.BI \-d N
-(e.g.,
+.I N
+is always the next word, including after a cluster such as
+.BR "\-rd 2" ;
+the glued form
 .B \-d2
-for depth 2), including inside a cluster such as
-.BR \-rd2 .
+is rejected.
 .TP
 .BR \-r ", " \-\-realpath
 Output absolute paths (resolved via

@@ -40,7 +40,7 @@ ls.bash                   # Bash files in current dir
 ls.bash /ai/scripts       # Bash files in specified dir
 ls.bash /dir1 /dir2       # Search multiple directories
 ls.bash -d 2 .            # Depth 2 (recursive)
-ls.bash -d2 .             # Depth 2, glued form (also -3 shorthand)
+ls.bash -3 .              # Depth 3, numeric shorthand for -d 3
 ls.bash -rl /ai/scripts   # Realpath + ls listing (clustered options)
 ls.bash -L /scripts       # Include symlinked files
 
@@ -52,7 +52,7 @@ ls.php /var/www           # PHP files
 
 | Option | Description |
 |--------|-------------|
-| `-d, --maxdepth N` | Max find depth (default: 1); accepts glued `-dN` (e.g. `-d2`) and `-N` shorthand |
+| `-d, --maxdepth N` | Max find depth (default: 1); `N` is always the next word (`-d 2`, `-rd 2`); `-N` shorthand also accepted |
 | `-r, --realpath` | Output absolute paths |
 | `-l, --ls` | Format as `ls -lhA --color=always` listing |
 | `-L, --follow` | Follow symbolic links |
